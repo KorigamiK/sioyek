@@ -261,14 +261,14 @@ private:
         return {};
     }
 
-    void set_result_socket(QLocalSocket* socket) override {
+    void set_result_socket(QLocalSocket* socket) {
         result_socket = socket;
         if (actual_command) {
             actual_command->set_result_socket(socket);
         }
     }
 
-    void set_result_mutex(bool* p_is_done, std::wstring* result_location) override {
+    void set_result_mutex(bool* p_is_done, std::wstring* result_location) {
         result_holder = result_location;
         is_done = p_is_done;
         if (actual_command) {
@@ -312,30 +312,30 @@ public:
         //parse_command_text(command_text);
     }
 
-    void set_text_requirement(std::wstring value) override { get_command()->set_text_requirement(value); }
-    void set_symbol_requirement(char value) override { get_command()->set_symbol_requirement(value); }
-    void set_file_requirement(std::wstring value) override { get_command()->set_file_requirement(value); }
-    void set_rect_requirement(AbsoluteRect value) override { get_command()->set_rect_requirement(value); }
-    void set_generic_requirement(QVariant value) override { get_command()->set_generic_requirement(value); }
-    void handle_generic_requirement() override { get_command()->handle_generic_requirement(); }
-    void set_point_requirement(AbsoluteDocumentPos value) override { get_command()->set_point_requirement(value); }
-    void set_num_repeats(int nr) override { get_command()->set_num_repeats(nr); }
-    std::vector<char> special_symbols() override { return get_command()->special_symbols(); }
-    void pre_perform() override { get_command()->pre_perform(); }
-    bool pushes_state() override { return get_command()->pushes_state(); }
-    bool requires_document() override { return get_command()->requires_document(); }
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    void set_text_requirement(std::wstring value) { get_command()->set_text_requirement(value); }
+    void set_symbol_requirement(char value) { get_command()->set_symbol_requirement(value); }
+    void set_file_requirement(std::wstring value) { get_command()->set_file_requirement(value); }
+    void set_rect_requirement(AbsoluteRect value) { get_command()->set_rect_requirement(value); }
+    void set_generic_requirement(QVariant value) { get_command()->set_generic_requirement(value); }
+    void handle_generic_requirement() { get_command()->handle_generic_requirement(); }
+    void set_point_requirement(AbsoluteDocumentPos value) { get_command()->set_point_requirement(value); }
+    void set_num_repeats(int nr) { get_command()->set_num_repeats(nr); }
+    std::vector<char> special_symbols() { return get_command()->special_symbols(); }
+    void pre_perform() { get_command()->pre_perform(); }
+    bool pushes_state() { return get_command()->pushes_state(); }
+    bool requires_document() { return get_command()->requires_document(); }
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
         return get_command()->next_requirement(widget);
     }
 
-    virtual void perform() override {
+    virtual void perform() {
         auto com = get_command();
         if (com) {
             com->run();
         }
     }
 
-    std::string get_name() override  {
+    std::string get_name() {
         auto com = get_command();
         if (com) {
             return com->get_name();
@@ -375,14 +375,14 @@ public:
         }
     }
 
-    void set_result_socket(QLocalSocket* rsocket) override {
+    void set_result_socket(QLocalSocket* rsocket) {
         result_socket = rsocket;
         for (auto& subcommand : commands) {
             subcommand->set_result_socket(result_socket);
         }
     }
 
-    void set_result_mutex(bool* id, std::wstring* result_location) override {
+    void set_result_mutex(bool* id, std::wstring* result_location) {
         is_done = id;
         result_holder = result_location;
         for (auto& subcommand : commands) {
@@ -440,7 +440,7 @@ public:
         return {};
     }
 
-    void set_text_requirement(std::wstring value) override {
+    void set_text_requirement(std::wstring value) {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -460,7 +460,7 @@ public:
         }
     }
 
-    bool is_menu_command() override {
+    bool is_menu_command() {
         if (is_modal) {
             bool res = false;
             for (std::string mode : modes) {
@@ -473,7 +473,7 @@ public:
         return false;
     }
 
-    void set_generic_requirement(QVariant value) override {
+    void set_generic_requirement(QVariant value) {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -493,7 +493,7 @@ public:
         }
     }
 
-    void handle_generic_requirement() override {
+    void handle_generic_requirement() {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -513,7 +513,7 @@ public:
         }
     }
 
-    void set_symbol_requirement(char value) override {
+    void set_symbol_requirement(char value) {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -534,7 +534,7 @@ public:
         }
     }
 
-    bool requires_document() override {
+    bool requires_document() {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -553,7 +553,7 @@ public:
         return false;
     }
 
-    void set_file_requirement(std::wstring value) override {
+    void set_file_requirement(std::wstring value) {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -592,14 +592,14 @@ public:
         return -1;
     }
 
-    void set_rect_requirement(AbsoluteRect value) override {
+    void set_rect_requirement(AbsoluteRect value) {
         int index = get_command_index_for_requirement_type(RequirementType::Rect);
         if (index >= 0) {
             commands[index]->set_rect_requirement(value);
         }
     }
 
-    void set_point_requirement(AbsoluteDocumentPos value) override {
+    void set_point_requirement(AbsoluteDocumentPos value) {
         int index = get_command_index_for_requirement_type(RequirementType::Point);
         if (index >= 0) {
             commands[index]->set_point_requirement(value);
@@ -607,7 +607,7 @@ public:
     }
 
 
-    void pre_perform() override {
+    void pre_perform() {
         if (is_modal) {
             int current_mode_index = get_current_mode_index();
             if (current_mode_index >= 0) {
@@ -624,7 +624,7 @@ public:
         }
     }
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
         if (is_modal && (modes.size() != commands.size())) {
             std::wcerr << L"Invalid modal command : " << raw_commands;
             return {};
@@ -691,7 +691,7 @@ public:
 
     }
 
-    void perform() override {
+    void perform() {
         if (!is_modal) {
             for (int i = 0; i < commands.size(); i++) {
 
@@ -746,7 +746,7 @@ public:
     }
 
 
-    void on_text_change(const QString& new_text) override {
+    void on_text_change(const QString& new_text) {
         if (is_modal) {
             int mode_index = get_current_mode_index();
             if (mode_index != -1) {
@@ -760,7 +760,7 @@ public:
         }
     }
 
-    std::vector<char> special_symbols() override {
+    std::vector<char> special_symbols() {
         int command_index = get_current_executing_command_index();
         if (command_index != -1) {
             return commands[command_index]->special_symbols();
@@ -777,7 +777,7 @@ public:
         return true;
     }
 
-    std::string get_name() override {
+    std::string get_name() {
         if (name.size() > 0 || commands.size() == 0) {
             return name;
         }
@@ -936,7 +936,7 @@ public:
         }
     }
 
-    void set_generic_requirement(QVariant value) override {
+    void set_generic_requirement(QVariant value) {
         selected_path = value.toString().toStdWString();
     }
 
@@ -1328,7 +1328,7 @@ public:
         }
     }
 
-    void pre_perform() override {
+    void pre_perform() {
         if (INCREMENTAL_SEARCH) {
             widget->main_document_view->add_mark('/');
         }
@@ -1340,7 +1340,7 @@ public:
         }
     }
 
-    void perform() override {
+    void perform() {
         // this search is not incremental even if incremental search is activated
         // (for example it should update the search terms list)
         widget->perform_search(this->text.value(), false, false);
@@ -1349,16 +1349,16 @@ public:
         }
     }
 
-    bool pushes_state() override {
+    bool pushes_state() {
         return true;
     }
 
-    std::optional<std::wstring> get_text_suggestion(int index) override {
+    std::optional<std::wstring> get_text_suggestion(int index) {
         return widget->get_search_suggestion_with_index(index);
     }
 
 
-    std::string text_requirement_name() override {
+    std::string text_requirement_name() {
         return "Search Term";
     }
 
@@ -1944,7 +1944,7 @@ public:
 
     AddBookmarkMarkedCommand(MainWidget* w) : Command(cname, w) {};
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
 
         if (!point_.has_value()) {
             Requirement req = { RequirementType::Point, "Bookmark Location" };
@@ -1957,12 +1957,12 @@ public:
         return {};
     }
 
-    void set_text_requirement(std::wstring value) override {
+    void set_text_requirement(std::wstring value) {
         text_ = value;
     }
 
 
-    void set_point_requirement(AbsoluteDocumentPos value) override {
+    void set_point_requirement(AbsoluteDocumentPos value) {
         point_ = value;
 
         BookMark incomplete_bookmark;
@@ -1981,7 +1981,7 @@ public:
         }
     }
 
-    void perform() override {
+    void perform() {
         if (text_->size() > 0) {
             std::string uuid = widget->doc()->add_pending_bookmark(pending_index, text_.value());
             widget->invalidate_render();
@@ -2182,7 +2182,7 @@ public:
         widget->doc()->get_bookmarks()[widget->selected_bookmark_index].description = new_text.toStdWString();
     }
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
 
         if (!rect_.has_value()) {
             Requirement req = { RequirementType::Rect, "Bookmark Location" };
@@ -2195,11 +2195,11 @@ public:
         return {};
     }
 
-    void set_text_requirement(std::wstring value) override {
+    void set_text_requirement(std::wstring value) {
         text_ = value;
     }
 
-    void set_rect_requirement(AbsoluteRect value) override {
+    void set_rect_requirement(AbsoluteRect value) {
         rect_ = value;
         BookMark incomplete_bookmark;
 
@@ -2219,14 +2219,14 @@ public:
     }
 
 
-    void on_cancel() override {
+    void on_cancel() {
 
         if (pending_index != -1) {
             widget->doc()->undo_pending_bookmark(pending_index);
         }
     }
 
-    void perform() override {
+    void perform() {
         //widget->doc()->add_freetext_bookmark(text_.value(), rect_.value());
         if (text_.value().size() > 0) {
             std::string uuid = widget->doc()->add_pending_bookmark(pending_index, text_.value());
@@ -2657,7 +2657,7 @@ public:
     QTimer* timer = nullptr;
     QMetaObject::Connection timer_connection;
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
         if (!finished) {
             return Requirement{ RequirementType::Generic, "dummy" };
         }
@@ -2674,7 +2674,8 @@ public:
         }
     }
 
-    void set_generic_requirement(QVariant value) override {
+    void set_generic_requirement(QVariant value)
+    {
         finished = true;
     }
 
@@ -2694,7 +2695,7 @@ public:
 
     }
 
-    void perform() override {
+    void perform() {
     }
 
 };
@@ -2709,7 +2710,7 @@ public:
         start_time = QDateTime::currentDateTime();
     };
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
         if (duration.has_value()) {
             return GenericWaitCommand::next_requirement(widget);
         }
@@ -2719,7 +2720,7 @@ public:
     }
 
 
-    void set_text_requirement(std::wstring text) override {
+    void set_text_requirement(std::wstring text) {
         duration = QString::fromStdWString(text).toInt();
     }
 
@@ -2734,7 +2735,8 @@ public:
     static inline const std::string hname = "";
     WaitForIndexingToFinishCommand(MainWidget* w) : GenericWaitCommand(cname, w) {};
 
-    void set_generic_requirement(QVariant value) override {
+    void set_generic_requirement(QVariant value)
+    {
         finished = true;
     }
 
@@ -3294,7 +3296,7 @@ public:
         widget->doc()->get_bookmarks()[widget->selected_bookmark_index].description = new_text.toStdWString();
     }
 
-    void pre_perform() override {
+    void pre_perform() {
 
         if (widget->selected_bookmark_index > -1) {
             initial_text = widget->doc()->get_bookmarks()[widget->selected_bookmark_index].description;
@@ -3317,19 +3319,19 @@ public:
         }
     }
 
-    void on_cancel() override {
+    void on_cancel() {
         if (index > -1) {
             widget->doc()->get_bookmarks()[index].description = initial_text;
             widget->doc()->get_bookmarks()[index].font_size = initial_font_size;
         }
     }
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
         if (widget->selected_bookmark_index == -1) return {};
         return TextCommand::next_requirement(widget);
     }
 
-    void perform() override {
+    void perform() {
         if (widget->selected_bookmark_index != -1) {
             std::wstring text_ = text.value();
             widget->change_selected_bookmark_text(text_);
@@ -3340,7 +3342,7 @@ public:
         }
     }
 
-    std::string text_requirement_name() override {
+    std::string text_requirement_name() {
         return "Bookmark Text";
     }
 
@@ -3429,7 +3431,7 @@ public:
         }
     }
 
-    std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
         // since pre_perform must be executed in order to determine the requirements, we manually run it here
         pre_perform();
 
@@ -3442,13 +3444,13 @@ public:
     }
 
 
-    virtual void set_symbol_requirement(char value) override {
+    virtual void set_symbol_requirement(char value) {
         tag.push_back(value);
     }
 
     virtual void perform_with_selected_index(std::optional<int> index) = 0;
 
-    void perform() override {
+    void perform() {
         bool should_clear_labels = false;
         if (tag.size() > 0) {
             int index = get_index_from_tag(tag);
@@ -3796,7 +3798,7 @@ public:
 
 public:
 
-    void perform() override {
+    void perform() {
 
         std::string mark_str = "";
         if (mark) {
@@ -3821,7 +3823,7 @@ public:
         mark = value;
     }
 
-    virtual std::optional<Requirement> next_requirement(MainWidget* widget) override {
+    virtual std::optional<Requirement> next_requirement(MainWidget* widget) {
         if (mark) return {};
 
         if (widget->get_ruler_portals().size() > 1) {
@@ -4611,17 +4613,17 @@ public:
 
     }
 
-    void perform() override {
+    void perform() {
         widget->handle_keyboard_select(text.value());
         widget->set_highlighted_tags({});
     }
 
-    void pre_perform() override {
+    void pre_perform() {
         widget->highlight_words();
 
     }
 
-    std::string text_requirement_name() override {
+    std::string text_requirement_name() {
         return "Labels";
     }
 };
