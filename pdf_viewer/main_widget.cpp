@@ -5428,6 +5428,7 @@ void MainWidget::goto_mark(char symbol) {
 
 void MainWidget::advance_command(std::unique_ptr<Command> new_command, std::wstring* result) {
     if (new_command) {
+        std::string command_name = new_command->get_name();
         if (!new_command->next_requirement(this).has_value()) {
             new_command->run();
             if (result) {
@@ -5437,8 +5438,8 @@ void MainWidget::advance_command(std::unique_ptr<Command> new_command, std::wstr
                 }
                 //*result = new_command->get_result()
             }
-            if (new_command->get_name() != "repeat_last_command") {
-                last_performed_command_name = new_command->get_name();
+            if (command_name != "repeat_last_command") {
+                last_performed_command_name = command_name;
                 last_performed_command_num_repeats = new_command->get_num_repeats();
             }
             set_last_performed_command(std::move(new_command));
