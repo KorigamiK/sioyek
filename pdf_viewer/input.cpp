@@ -3171,6 +3171,16 @@ public:
 
 };
 
+class RepeatLastCommandCommnad : public Command {
+public:
+    static inline const std::string cname = "repeat_last_command";
+    static inline const std::string hname = "Repeat the last command executed.";
+    RepeatLastCommandCommnad(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->repeat_last_command();
+    }
+};
+
 class OverviewDefinitionCommand : public Command {
 public:
     static inline const std::string cname = "overview_definition";
@@ -6857,7 +6867,9 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<PrintNonDefaultConfigs>();
     register_command<SetWindowRectCommand>();
     register_command<MoveSelectedBookmarkCommand>();
+    register_command<RepeatLastCommandCommnad>();
     register_command<CloseWindowCommand>("q");
+
 
     for (auto [command_name_, command_value] : ADDITIONAL_COMMANDS) {
         std::string command_name = utf8_encode(command_name_);
@@ -6951,6 +6963,9 @@ void CommandManager::handle_new_javascript_command(std::wstring command_name_, J
             new_commands[command_name] = [command_name, code, entry_point=entry_point, is_async, this](MainWidget* w) {
                 return std::make_unique<JavascriptCommand>(command_name, code.toStdWString(), entry_point, is_async, w);
                 };
+        }
+        else {
+            std::wcout << L"Could not open file " << absolute_file_path.toStdWString() << L"\n";
         }
 }
 
@@ -7671,6 +7686,10 @@ bool Command::requires_document() {
 
 void Command::set_num_repeats(int nr) {
     num_repeats = nr;
+}
+
+int Command::get_num_repeats() {
+    return num_repeats;
 }
 
 void Command::pre_perform() {

@@ -61,6 +61,12 @@ enum class DrawingMode {
     None
 };
 
+enum class SelectionMode {
+    Character,
+    Word,
+    Line
+};
+
 struct MenuNode {
     QString name;
     QString doc;
@@ -109,6 +115,11 @@ struct FreehandDrawingMoveData {
     std::vector<FreehandDrawing> initial_drawings;
     std::vector<PixmapDrawing> initial_pixmaps;
     AbsoluteDocumentPos initial_mouse_position;
+};
+
+struct ClickSpaceTime {
+    QDateTime click_time;
+    AbsoluteDocumentPos click_pos;
 };
 
 enum class PaperDownloadFinishedAction {
@@ -162,7 +173,10 @@ public:
     // input to be completed) this is where they are stored until they can be executed.
     std::unique_ptr<Command> pending_command_instance = nullptr;
     std::vector<Command*> commands_being_performed;
-    std::unique_ptr<Command> last_performed_command;
+    std::unique_ptr<Command> last_performed_command = nullptr;
+
+    std::string last_performed_command_name = "";
+    int last_performed_command_num_repeats = 0;
 
     DocumentView* main_document_view = nullptr;
     ScratchPad* scratchpad = nullptr;
@@ -235,7 +249,7 @@ public:
     // is the user currently selecing text? (happens when we left click and move the cursor)
     bool is_selecting = false;
     // is the user in word select mode? (happens when we double left click and move the cursor)
-    bool is_word_selecting = false;
+    SelectionMode selection_mode = SelectionMode::Character;
 
     // in select highlight mode, we immediately highlight the text when it is selected
     // with highlight type of `select_highlight_type` 
@@ -261,6 +275,8 @@ public:
     // lower value when in smooth scroll mode or when user flicks a document in touch mode
     QTimer* validation_interval_timer = nullptr;
     QDateTime last_persistance_datetime;
+
+    std::deque<ClickSpaceTime> recent_clicks;
 
     // the portal to be edited. This is usually set by `edit_portal` command which jumps to the portal
     // when we go back to the original location by jumping back in history, the portal will be edited
@@ -854,6 +870,9 @@ public:
     Q_INVOKABLE void screenshot_js(QString file_path, QJsonObject window_rect);
     Q_INVOKABLE void framebuffer_screenshot_js(QString file_path, QJsonObject window_rect);
 
+    Q_INVOKABLE QString perform_network_request_with_headers(QString method, QString url, QJsonObject headers, QJsonObject request, bool* is_done=nullptr, QByteArray* response=nullptr);
+    Q_INVOKABLE void copy_text_to_clipboard(QString str);
+
     void screenshot(std::wstring file_path);
     void framebuffer_screenshot(std::wstring file_path);
 
@@ -921,11 +940,12 @@ public:
     void zoom_out_overview();
     Q_INVOKABLE QString run_macro_on_main_thread(QString macro_string, bool wait_for_result=true, int target_window_id=-1);
     Q_INVOKABLE QString perform_network_request(QString url);
-    Q_INVOKABLE QString read_text_file(QString path);
+    Q_INVOKABLE QString read_file(QString path, bool encode_base_64=false);
     Q_INVOKABLE void execute_macro_and_return_result(QString macro_string, bool* is_done, std::wstring* result);
     Q_INVOKABLE QString execute_macro_sync(QString macro);
     Q_INVOKABLE void set_variable(QString name, QVariant var);
     Q_INVOKABLE QVariant get_variable(QString name);
+    Q_INVOKABLE QString get_environment_variable(QString name);
     void run_javascript_command(std::wstring javascript_code, std::optional<std::wstring> entry_point, bool is_async);
     void set_text_prompt_text(QString text);
     AbsoluteDocumentPos get_window_abspos(WindowPos window_pos);
@@ -985,6 +1005,10 @@ public:
     void delete_menu_nodes(MenuNode* items);
     void set_pending_portal(std::optional<std::wstring> doc_path, Portal portal);
     void set_pending_portal(std::optional<std::pair<std::optional<std::wstring>, Portal>> pending_portal);
+    void update_text_selection(AbsoluteDocumentPos mouse_abspos);
+    int update_recent_clicks(AbsoluteDocumentPos mouse_abspos);
+    void handle_triple_click(AbsoluteDocumentPos mouse_abspos);
+    void repeat_last_command();
 };
 
 MainWidget* get_window_with_window_id(int window_id);

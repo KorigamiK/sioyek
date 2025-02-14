@@ -23,6 +23,7 @@ extern float OVERVIEW_OFFSET[2];
 extern bool SHOULD_HIGHLIGHT_LINKS;
 extern float HIDE_SYNCTEX_HIGHLIGHT_TIMEOUT;
 extern int PAGE_PADDINGS;
+extern bool SAME_WIDTH;
 
 DocumentView::DocumentView(DatabaseManager* db_manager,
     DocumentManager* document_manager,
@@ -425,7 +426,7 @@ WindowPos DocumentView::document_to_window_pos_in_pixels_uncentered(DocumentPos 
 }
 
 WindowPos DocumentView::document_to_window_pos_in_pixels_banded(DocumentPos doc_pos) {
-    if (is_two_page_mode() || (REAL_PAGE_SEPARATION)) {
+    if (!fast_coordinates()) {
         VirtualPos vpos = document_to_virtual_pos(doc_pos);
         WindowPos window_pos = virtual_to_window_pos(vpos);
         return window_pos;
@@ -729,6 +730,7 @@ void DocumentView::reset_doc_state() {
     is_ruler_mode_ = false;
     presentation_page_number = {};
     cached_virtual_rects.clear();
+    same_width_mode_first_page_width = {};
 }
 
 void DocumentView::open_document(const std::wstring& doc_path,
@@ -937,6 +939,9 @@ void DocumentView::fit_to_page_width(bool smart, bool ratio) {
     }
     else {
         int page_width = current_document->get_page_width(cp);
+        if (SAME_WIDTH && same_width_mode_first_page_width.has_value()) {
+            page_width = same_width_mode_first_page_width.value();
+        }
         int virtual_view_width = view_width;
 
         if (ratio) {
@@ -1172,6 +1177,13 @@ void DocumentView::get_text_selection(AbsoluteDocumentPos selection_begin,
         current_document->get_text_selection(selection_begin, selection_end, is_word_selection, selected_characters, selected_text);
     }
 
+}
+
+void DocumentView::get_line_selection(AbsoluteDocumentPos selection_begin, AbsoluteDocumentPos selection_end, std::deque<AbsoluteRect>& selected_characters, std::wstring& text_selection) {
+
+    if (current_document){
+        current_document->get_line_selection(selection_begin, selection_end, selected_characters, text_selection);
+    }
 }
 
 int DocumentView::get_page_offset() {
@@ -1961,6 +1973,11 @@ VirtualPos DocumentView::document_to_virtual_pos(DocumentPos docpos) {
         VirtualRect page_virtual_rect = cached_virtual_rects[docpos.page];
 
         VirtualPos pos = page_virtual_rect.top_left();
+        if (SAME_WIDTH && same_width_mode_first_page_width.has_value()) {
+            float factor = static_cast<float>(same_width_mode_first_page_width.value()) / current_document->get_page_width(docpos.page);
+            docpos.x *= factor;
+            docpos.y *= factor;
+        }
         pos.x += docpos.x;
         pos.y += docpos.y;
         return pos;
@@ -2003,6 +2020,11 @@ AbsoluteDocumentPos DocumentView::virtual_to_absolute_pos(const VirtualPos& vpos
     docpos.x = vpos.x - cached_virtual_rects[page].x0;
     docpos.y = vpos.y - cached_virtual_rects[page].y0;
     docpos.page = page;
+    if (SAME_WIDTH && same_width_mode_first_page_width.has_value()) {
+        float factor = static_cast<float>(same_width_mode_first_page_width.value()) / current_document->get_page_width(page);
+        docpos.x /= factor;
+        docpos.y /= factor;
+    }
 
 
     return docpos.to_absolute(current_document);
@@ -2012,11 +2034,20 @@ void DocumentView::fill_cached_virtual_rects(bool force) {
     if (!current_document) return;
 
 
+    bool page_dims_are_loaded = current_document->can_use_highlights();
+    if (!page_dims_are_loaded) {
+        needs_refill = true;
+    }
+    else {
+        needs_refill = false;
+    }
+
     float cum_offset = 0;
 
     if ((cached_virtual_rects.size() == 0) || force) {
         cached_virtual_rects.clear();
         int num_pages = current_document->num_pages();
+        if (num_pages == 0) return;
 
         if (two_page_mode) {
 
@@ -2054,10 +2085,23 @@ void DocumentView::fill_cached_virtual_rects(bool force) {
         }
         else {
             cached_virtual_rects.clear();
-            if (REAL_PAGE_SEPARATION) {
+            if (REAL_PAGE_SEPARATION || SAME_WIDTH) {
+
+                int first_page_width = current_document->get_page_width_median();
+                if (SAME_WIDTH) {
+                    same_width_mode_first_page_width = first_page_width;
+                }
+
                 for (int i = 0; i < num_pages; i++) {
                     float page_width = current_document->get_page_width(i);
                     float page_height = current_document->get_page_height(i);
+
+                    if (SAME_WIDTH) {
+                        float factor = static_cast<float>(first_page_width) / page_width;
+                        page_width *= factor;
+                        page_height *= factor;
+                    }
+
                     VirtualRect page_rect;
                     page_rect.x0 = -page_width / 2;
                     page_rect.x1 = page_width / 2;
@@ -2128,5 +2172,5 @@ float DocumentView::get_page_space_y() {
 }
 
 bool DocumentView::fast_coordinates() {
-    return (!two_page_mode) && (!REAL_PAGE_SEPARATION);
+    return (!two_page_mode) && (!REAL_PAGE_SEPARATION) && (!SAME_WIDTH);
 }

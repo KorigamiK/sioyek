@@ -23,6 +23,7 @@
 #include <optional>
 #include <memory>
 #include <cctype>
+#include <cstdlib>
 #include <qpainterpath.h>
 #include <qabstractitemmodel.h>
 #include <qapplication.h>
@@ -206,6 +207,7 @@ extern bool DONT_FOCUS_IF_SYNCTEX_RECT_IS_VISIBLE;
 extern bool USE_SYSTEM_THEME;
 extern bool USE_CUSTOM_COLOR_FOR_DARK_SYSTEM_THEME;
 extern bool ALLOW_MAIN_VIEW_SCROLL_WHILE_IN_OVERVIEW;
+extern bool SAME_WIDTH;
 
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
 extern std::wstring CONTEXT_MENU_ITEMS;
@@ -764,27 +766,38 @@ void MainWidget::mouseMoveEvent(QMouseEvent* mouse_event) {
     }
 
     if (is_selecting) {
+        update_text_selection(abs_mpos);
+    }
+}
 
-        // When selecting, we occasionally update selected text
-        //todo: maybe have a timer event that handles this periodically
-        int msecs_since_last_text_select = last_text_select_time.msecsTo(QTime::currentTime());
-        if (msecs_since_last_text_select > 16 || msecs_since_last_text_select < 0) {
+void MainWidget::update_text_selection(AbsoluteDocumentPos abs_mpos) {
+    // When selecting, we occasionally update selected text
+    //todo: maybe have a timer event that handles this periodically
+    int msecs_since_last_text_select = last_text_select_time.msecsTo(QTime::currentTime());
+    if (msecs_since_last_text_select > 16 || msecs_since_last_text_select < 0) {
 
-            selection_begin = last_mouse_down;
-            selection_end = abs_mpos;
-            //fz_point selection_begin = { last_mouse_down.x(), last_mouse_down.y()};
-            //fz_point selection_end = { document_x, document_y };
+        selection_begin = last_mouse_down;
+        selection_end = abs_mpos;
+        //fz_point selection_begin = { last_mouse_down.x(), last_mouse_down.y()};
+        //fz_point selection_end = { document_x, document_y };
 
-            main_document_view->get_text_selection(selection_begin,
+        if (selection_mode == SelectionMode::Line) {
+            main_document_view->get_line_selection(selection_begin,
                 selection_end,
-                is_word_selecting,
                 main_document_view->selected_character_rects,
                 selected_text);
-            selected_text_is_dirty = false;
-
-            validate_render();
-            last_text_select_time = QTime::currentTime();
         }
+        else {
+            main_document_view->get_text_selection(selection_begin,
+                selection_end,
+                selection_mode == SelectionMode::Word ,
+                main_document_view->selected_character_rects,
+                selected_text);
+        }
+        selected_text_is_dirty = false;
+
+        validate_render();
+        last_text_select_time = QTime::currentTime();
     }
 }
 
@@ -1145,6 +1158,9 @@ MainWidget::MainWidget(fz_context* mupdf_context,
             if (doc()->get_should_reload_annotations()) {
                 doc()->reload_annotations_on_new_checksum();
                 validate_render();
+            }
+            if (main_document_view->needs_refill && doc()->can_use_highlights()){
+                main_document_view->fill_cached_virtual_rects(true);
             }
         }
 
@@ -2474,7 +2490,7 @@ void MainWidget::handle_left_click(WindowPos click_pos, bool down, bool is_shift
         if ((!TOUCH_MODE) && (!mouse_drag_mode)) {
             is_selecting = true;
             if (SINGLE_CLICK_SELECTS_WORDS) {
-                is_word_selecting = true;
+                selection_mode = SelectionMode::Word;
             }
         }
         else {
@@ -2502,22 +2518,28 @@ void MainWidget::handle_left_click(WindowPos click_pos, bool down, bool is_shift
             //fz_point selection_begin = { last_mouse_down_x, last_mouse_down_y };
             //fz_point selection_end = { x_, y_ };
 
-            main_document_view->get_text_selection(last_mouse_down,
-                abs_doc_pos,
-                is_word_selecting,
-                main_document_view->selected_character_rects,
-                selected_text);
-            selected_text_is_dirty = false;
+            update_text_selection(abs_doc_pos);
+            //main_document_view->get_text_selection(last_mouse_down,
+            //    abs_doc_pos,
+            //    selection_mode == SelectionMode::Word,
+            //    main_document_view->selected_character_rects,
+            //    selected_text);
+            //selected_text_is_dirty = false;
 
             //opengl_widget->set_control_character_rect(control_rect);
-            is_word_selecting = false;
+            selection_mode = SelectionMode::Character;
         }
         else {
             //            WindowPos current_window_pos = {};
             //            handle_click(click_pos);
             if (!TOUCH_MODE) {
                 handle_click(click_pos);
-                clear_selected_text();
+                if (main_document_view->selected_character_rects.size() <= 1) {
+                    // when trying to click on items, we might accidentally select text
+                    // so when the selected text is just one character, we assume the user
+                    // was trying to click on an item and not select text
+                    clear_selected_text();
+                }
             }
             else {
                 int distance = abs(click_pos.x - last_mouse_down_window_pos.x) + abs(click_pos.y - last_mouse_down_window_pos.y);
@@ -2837,7 +2859,7 @@ TextUnderPointerInfo MainWidget::find_location_of_text_under_pointer(DocumentPos
         }
     }
     else{
-        std::wregex abbr_regex(L"[A-Z]+s?");
+        std::wregex abbr_regex(L"([A-Z]\\.?)+s?");
         std::optional<std::wstring> abbr_under_pointer = doc()->get_regex_match_at_position(abbr_regex, flat_chars, docpos.pageless(), &reference_range);
         if (abbr_under_pointer){
             std::optional<DocumentPos> abbr_definition_location = doc()->find_abbreviation(abbr_under_pointer.value(), res.overview_highlight_rects);
@@ -2961,20 +2983,48 @@ void MainWidget::mouseReleaseEvent(QMouseEvent* mevent) {
 
 }
 
+int MainWidget::update_recent_clicks(AbsoluteDocumentPos mouse_abspos) {
+    QDateTime current_time;
+    recent_clicks.push_back({ current_time, mouse_abspos });
+
+    if (recent_clicks.size() > 5) {
+        recent_clicks.pop_front();
+    }
+
+    int msecs_per_click = 333;
+    for (int index = 0; index < recent_clicks.size(); index++) {
+
+        auto [ith_prev_time, ith_prev_pos] = recent_clicks[recent_clicks.size() - 1 - index];
+        if (!(ith_prev_time.msecsTo(current_time) < (msecs_per_click * (index + 1)) && manhattan_distance(mouse_abspos, ith_prev_pos) <= 5)) {
+            return index;
+        }
+    }
+    return recent_clicks.size();
+}
+
 void MainWidget::mouseDoubleClickEvent(QMouseEvent* mevent) {
     if (!TOUCH_MODE) {
-        if (mevent->button() == Qt::MouseButton::LeftButton) {
-            is_selecting = true;
-            if (SINGLE_CLICK_SELECTS_WORDS) {
-                is_word_selecting = false;
-            }
-            else {
-                is_word_selecting = true;
-            }
-        }
-
         WindowPos click_pos = { mevent->pos().x(), mevent->pos().y() };
         AbsoluteDocumentPos mouse_abspos = main_document_view->window_to_absolute_document_pos(click_pos);
+
+        if (mevent->button() == Qt::MouseButton::LeftButton) {
+            int count = update_recent_clicks(mouse_abspos);
+            if (count >= 3) {
+                handle_triple_click(mouse_abspos);
+                return;
+            }
+
+            is_selecting = true;
+            if (SINGLE_CLICK_SELECTS_WORDS) {
+                selection_mode = SelectionMode::Character;
+            }
+            else {
+                selection_mode = SelectionMode::Word;
+                update_text_selection(mouse_abspos);
+            }
+
+        }
+
         int bookmark_index = doc()->get_bookmark_index_at_pos(mouse_abspos);
         int highlight_index = main_document_view->get_highlight_index_in_pos(click_pos);
 
@@ -2990,6 +3040,12 @@ void MainWidget::mouseDoubleClickEvent(QMouseEvent* mevent) {
     }
 }
 
+void MainWidget::handle_triple_click(AbsoluteDocumentPos mouse_abspos) {
+    is_selecting = true;
+    selection_mode = SelectionMode::Line;
+    update_text_selection(mouse_abspos);
+}
+
 void MainWidget::mousePressEvent(QMouseEvent* mevent) {
     bool is_shift_pressed = QGuiApplication::keyboardModifiers().testFlag(Qt::KeyboardModifier::ShiftModifier);
     bool is_control_pressed = QGuiApplication::keyboardModifiers().testFlag(Qt::KeyboardModifier::ControlModifier);
@@ -2999,6 +3055,17 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
     if (should_draw(false) && (mevent->button() == Qt::MouseButton::LeftButton)) {
         start_drawing();
         return;
+    }
+
+    if (!TOUCH_MODE && mevent->button() == Qt::MouseButton::LeftButton) {
+        QPoint local_mpos = mapFromGlobal(QCursor::pos());
+        AbsoluteDocumentPos current_pos = WindowPos(local_mpos).to_absolute(main_document_view);
+        int count = update_recent_clicks(current_pos);
+
+        if (count >= 3) { // triple clicked
+            handle_triple_click(current_pos);
+            return;
+        }
     }
 
     if (mevent->button() == Qt::MouseButton::LeftButton) {
@@ -5370,6 +5437,10 @@ void MainWidget::advance_command(std::unique_ptr<Command> new_command, std::wstr
                 }
                 //*result = new_command->get_result()
             }
+            if (new_command->get_name() != "repeat_last_command") {
+                last_performed_command_name = new_command->get_name();
+                last_performed_command_num_repeats = new_command->get_num_repeats();
+            }
             set_last_performed_command(std::move(new_command));
         }
         else {
@@ -5523,22 +5594,15 @@ void MainWidget::portal_to_definition() {
 }
 
 void MainWidget::move_visual_mark_command(int amount) {
-    if (opengl_widget->get_overview_page()) {
-        if (amount > 0) {
-            scroll_overview(amount);
-        }
-        else {
-            scroll_overview(amount);
-        }
-    }
-    else if (is_visual_mark_mode()) {
+    if (is_visual_mark_mode() && !opengl_widget->get_overview_page().has_value()) {
+
         move_visual_mark(amount);
+        if (AUTOCENTER_VISUAL_SCROLL) {
+            return_to_last_visual_mark();
+        }
     }
     else {
-        move_document(0.0f, 72.0f * amount * VERTICAL_MOVE_AMOUNT);
-    }
-    if (AUTOCENTER_VISUAL_SCROLL) {
-        return_to_last_visual_mark();
+        handle_vertical_move(amount);
     }
     validate_render();
 }
@@ -6038,6 +6102,14 @@ MainWidget* MainWidget::handle_new_window() {
     new_widget->apply_window_params_for_one_window_mode();
     new_widget->execute_macro_if_enabled(STARTUP_COMMANDS);
 
+    auto color_mode = opengl_widget->get_current_color_mode();
+    if (color_mode == PdfViewOpenGLWidget::ColorPalette::Dark) {
+        new_widget->opengl_widget->set_dark_mode(true);
+    }
+    else if (color_mode == PdfViewOpenGLWidget::ColorPalette::Custom) {
+        new_widget->opengl_widget->set_custom_color_mode(true);
+    }
+
     windows.push_back(new_widget);
     return new_widget;
 }
@@ -6327,11 +6399,11 @@ bool MainWidget::event(QEvent* event) {
         // Apparently Qt doesn't send keyPressEvent for tab and backtab anymore, so we have to
         // manually handle them here.
         // todo: make sure this doesn't cause problems on linux and mac
-        if (((ke->key() == Qt::Key_Tab) && (ke->modifiers() == 0)) || ((ke->key() == Qt::Key_Backtab) && (ke->modifiers() == Qt::ShiftModifier))) {
-            if (event->isAccepted()) {
-                key_event(false, ke);
-            }
-        }
+        //if (((ke->key() == Qt::Key_Tab) && (ke->modifiers() == 0)) || ((ke->key() == Qt::Key_Backtab) && (ke->modifiers() == Qt::ShiftModifier))) {
+        //    if (event->isAccepted()) {
+        //        key_event(false, ke);
+        //    }
+        //}
     }
 
     if (event->type() == QEvent::WindowActivate) {
@@ -7096,9 +7168,6 @@ void MainWidget::show_recursive_context_menu(std::unique_ptr<MenuItems> items) {
 }
 
 void MainWidget::handle_debug_command() {
-    // print the version of mupdf header and library
-
-    qDebug() << "mupdf header version: " << FZ_VERSION;
 }
 
 void MainWidget::export_command_names(std::wstring file_path){
@@ -7612,7 +7681,7 @@ void MainWidget::handle_add_marked_data() {
 
     main_document_view->get_text_selection(selection_begin,
         selection_end,
-        is_word_selecting,
+        selection_mode == SelectionMode::Word,
         local_selected_rects,
         local_selected_text);
     if (local_selected_rects.size() > 0) {
@@ -8075,7 +8144,7 @@ const std::wstring& MainWidget::get_selected_text(bool insert_newlines) {
         else {
             main_document_view->get_text_selection(selection_begin,
                 selection_end,
-                is_word_selecting,
+                selection_mode == SelectionMode::Word,
                 dummy_rects,
                 selected_text);
         }
@@ -8102,7 +8171,7 @@ void MainWidget::expand_selection_vertical(bool begin, bool below) {
         }
         main_document_view->get_text_selection(selection_begin,
             selection_end,
-            is_word_selecting,
+            selection_mode == SelectionMode::Word,
             main_document_view->selected_character_rects,
             selected_text);
         selected_text_is_dirty = false;
@@ -9562,6 +9631,12 @@ QString MainWidget::handle_action_in_menu(std::wstring action) {
         if (action == L"up") {
             selector_widget->simulate_move_up();
         }
+        if (action == L"left") {
+            selector_widget->simulate_move_left();
+        }
+        if (action == L"right") {
+            selector_widget->simulate_move_right();
+        }
         if (action == L"page_down") {
             selector_widget->simulate_page_down();
         }
@@ -10059,14 +10134,20 @@ QString MainWidget::run_macro_on_main_thread(QString macro_string, bool wait_for
     }
 }
 
-QString MainWidget::read_text_file(QString path) {
+QString MainWidget::read_file(QString path, bool encode_base_64) {
     bool is_done = false;
     QString res;
 
     QMetaObject::invokeMethod(this, [&, path]() {
         QFile file(path);
         if (file.open(QIODeviceBase::ReadOnly)) {
-            res = QString::fromUtf8(file.readAll());
+            if (!encode_base_64) {
+                res = QString::fromUtf8(file.readAll());
+            }
+            else {
+                QByteArray data = file.readAll();
+                res = QString::fromUtf8(data.toBase64());
+            }
         }
         is_done = true;
         });
@@ -11387,3 +11468,95 @@ void MainWidget::framebuffer_screenshot_js(QString file_path, QJsonObject window
     }
 }
 
+
+QString MainWidget::perform_network_request_with_headers(QString method, QString url, QJsonObject headers, QJsonObject request, bool* is_done, QByteArray* response){
+    bool is_on_main_thread = QThread::currentThread() == QApplication::instance()->thread();
+    if (is_on_main_thread) {
+
+        QNetworkRequest req;
+
+        for (auto header : headers.keys()) {
+            QString header_name = header;
+            QString header_value = headers[header].toString();
+            req.setRawHeader(header.toUtf8(), headers[header].toString().toUtf8());
+        }
+
+        req.setUrl(QUrl(url));
+        QString req_content = QJsonDocument(request).toJson();
+        qDebug() << req_content;
+        QNetworkReply* reply = nullptr;
+
+        if (method.toLower() == "post") {
+            reply = network_manager.post(req, QJsonDocument(request).toJson());
+        }
+        else {
+            reply = network_manager.get(req, QJsonDocument(request).toJson());
+        }
+
+        QObject::connect(reply, &QNetworkReply::readyRead, [reply, is_done, response]() {
+            auto content = reply->readAll();
+            if (is_done) {
+                *is_done = true;
+            }
+            if (response) {
+                *response = content;
+            }
+            });
+
+        QObject::connect(reply, &QNetworkReply::finished, [reply, is_done]() {
+            if (is_done) {
+                *is_done = true;
+            }
+            reply->deleteLater();
+            });
+        return "";
+
+    }
+    else {
+
+        bool done = false;
+        QByteArray resp;
+        QMetaObject::invokeMethod(this,
+            "perform_network_request_with_headers",
+            Qt::BlockingQueuedConnection,
+            Q_ARG(QString, method),
+            Q_ARG(QString, url),
+            Q_ARG(QJsonObject, headers),
+            Q_ARG(QJsonObject, request),
+            Q_ARG(bool*, &done),
+            Q_ARG(QByteArray*, &resp)
+        );
+
+        while (!done) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        return QString::fromUtf8(resp);
+
+    }
+
+
+}
+
+void MainWidget::copy_text_to_clipboard(QString str) {
+    bool is_on_main_thread = QThread::currentThread() == QApplication::instance()->thread();
+    if (is_on_main_thread) {
+        copy_to_clipboard(str.toStdWString());
+    }
+    else {
+        QMetaObject::invokeMethod(this,
+            "copy_text_to_clipboard",
+            Qt::BlockingQueuedConnection,
+            Q_ARG(QString, str)
+        );
+    }
+}
+
+QString MainWidget::get_environment_variable(QString name) {
+    return QString::fromStdString(std::getenv(name.toStdString().c_str()));
+}
+
+void MainWidget::repeat_last_command() {
+    std::unique_ptr<Command> last_cmd = command_manager->get_command_with_name(this, last_performed_command_name);
+    handle_command_types(std::move(last_cmd), last_performed_command_num_repeats);
+}

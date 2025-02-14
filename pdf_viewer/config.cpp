@@ -284,6 +284,7 @@ float FREETEXT_BOOKMARK_COLOR[3] = { 0.0f, 0.0f, 0.0f };
 float FREETEXT_BOOKMARK_FONT_SIZE = 8.0f;
 bool RENDER_FREETEXT_BORDERS = false;
 bool REAL_PAGE_SEPARATION = false;
+bool SAME_WIDTH = false;
 
 float EPUB_WIDTH = 400;
 float EPUB_HEIGHT = 700;
@@ -1018,6 +1019,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_bool(L"add_newlines_when_copying_text", &ADD_NEWLINES_WHEN_COPYING_TEXT);
     add_bool(L"always_copy_selected_text", &ALWAYS_COPY_SELECTED_TEXT);
     add_bool(L"show_statusbar_only_when_hovered", &SHOW_STATUSBAR_ONLY_WHEN_MOUSE_OVER);
+    add_bool(L"uniform_page_widths", &SAME_WIDTH);
 
     add_string(L"google_scholar_address", &GOOGLE_SCHOLAR_ADDRESS);
     add_string(L"item_list_prefix", &ITEM_LIST_PREFIX);

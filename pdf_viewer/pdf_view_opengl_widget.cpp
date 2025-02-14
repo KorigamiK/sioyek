@@ -73,6 +73,7 @@ extern bool HIDE_OVERLAPPING_LINK_LABELS;
 extern bool PRESERVE_IMAGE_COLORS;
 extern bool INVERTED_PRESERVED_IMAGE_COLORS;
 extern bool INVERT_SELECTED_TEXT;
+extern bool SAME_WIDTH;
 
 extern int NUM_PRERENDERED_NEXT_SLIDES;
 extern int NUM_PRERENDERED_PREV_SLIDES;
@@ -1013,6 +1014,13 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
     if ((page_width < 0) || (page_height < 0)) return;
 
     float zoom_level = in_overview ? get_overview_zoom_level() : document_view->get_zoom_level();
+
+    if (SAME_WIDTH && document_view->same_width_mode_first_page_width) {
+        float factor = document_view->same_width_mode_first_page_width.value() / page_width;
+        page_width *= factor;
+        page_height *= factor;
+        zoom_level *= factor;
+    }
 
     bool is_sliced = num_slices_for_page_rect(page_rect, &nh, &nv);
 

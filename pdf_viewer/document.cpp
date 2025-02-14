@@ -702,6 +702,16 @@ float Document::get_page_width(int page_index) {
     }
 }
 
+float Document::get_page_width_median() {
+    if (page_widths.size() == 0) {
+        return 500.0f;
+    }
+
+    std::vector<float> sorted_widths = page_widths;
+    std::nth_element(sorted_widths.begin(), sorted_widths.begin() + sorted_widths.size() / 2, sorted_widths.end());
+    return sorted_widths[sorted_widths.size() / 2];
+}
+
 float Document::get_page_size_smart(bool width, int page_index, float* left_ratio, float* right_ratio, int* normal_page_width) {
 
     fz_pixmap* pixmap = get_small_pixmap(page_index);
@@ -1856,6 +1866,69 @@ std::wstring Document::get_raw_text_selection(AbsoluteDocumentPos selection_begi
 
 }
 
+void Document::get_line_selection(AbsoluteDocumentPos selection_begin,
+    AbsoluteDocumentPos selection_end,
+    std::deque<AbsoluteRect>& selected_characters,
+    std::wstring& selected_text) {
+
+    selected_characters.clear();
+    selected_text.clear();
+
+    DocumentPos begin_doc_pos = selection_begin.to_document(this);
+    DocumentPos end_doc_pos = selection_end.to_document(this);
+
+    bool begun = false;
+
+    fz_point begin_fz_point = { begin_doc_pos.x, begin_doc_pos.y };
+    fz_point end_fz_point = { end_doc_pos.x, end_doc_pos.y };
+
+    fz_stext_page* begin_page = get_stext_with_page_number(begin_doc_pos.page);
+    fz_stext_page* end_page = get_stext_with_page_number(end_doc_pos.page);
+
+    int begin_index, end_index;
+    fz_stext_line* closest_line_to_begin = find_closest_line_to_document_point(begin_page, begin_fz_point, &begin_index);
+    fz_stext_line* closest_line_to_end = find_closest_line_to_document_point(end_page, end_fz_point, &end_index);
+
+    if ((begin_page == end_page && begin_index > end_index)) {
+        std::swap(closest_line_to_begin, closest_line_to_end);
+    }
+    else if (begin_page > end_page){
+        std::swap(closest_line_to_begin, closest_line_to_end);
+        std::swap(begin_doc_pos, end_doc_pos);
+    }
+
+    for (int page_number = begin_doc_pos.page; page_number <= end_doc_pos.page; page_number++) {
+
+
+        fz_stext_page* stext_page = get_stext_with_page_number(page_number);
+
+        if (closest_line_to_begin == nullptr || closest_line_to_end == nullptr) return;
+
+        LL_ITER(block, stext_page->first_block) {
+            if (block->type == FZ_STEXT_BLOCK_TEXT) {
+                LL_ITER(line, block->u.t.first_line) {
+                    if (line == closest_line_to_begin) {
+                        begun = true;
+                    }
+
+                    if (begun) {
+                        for (fz_stext_char* chr = line->first_char; chr; chr = chr->next) {
+                            selected_characters.push_back(to_absolute(page_number, chr->quad));
+                            selected_text.push_back(chr->c);
+                        }
+                    }
+
+                    if (line == closest_line_to_end) {
+                        return;
+                    }
+                }
+            }
+        }
+
+    }
+
+}
+
 void Document::get_text_selection(fz_context* ctx, AbsoluteDocumentPos selection_begin,
     AbsoluteDocumentPos selection_end,
     bool is_word_selection,
@@ -1922,7 +1995,7 @@ void Document::get_text_selection(fz_context* ctx, AbsoluteDocumentPos selection
             char_end = find_closest_char_to_document_point(flat_chars, page_point2, &location_index2);
         }
 
-        if (char_begin == char_end && (char_begin != nullptr)) {
+        if (char_begin == char_end && (!is_word_selection) && (char_begin != nullptr)) {
             selected_text.push_back(char_begin->c);
             selected_characters.push_back(to_absolute(i, char_begin->quad));
             return;
@@ -4001,22 +4074,41 @@ std::optional<DocumentPos> Document::find_abbreviation(std::wstring abbr, std::v
         while (index > 0 && is_in(super_fast_search_index[index], {' ', '(', ')', '\n'})){
             index--;
         }
-        std::wstring remaining_abbr = abbr;
+
+        // remaining_abbr = abbr with dots removed
+        std::wstring remaining_abbr;
+        for (int i = 0; i < abbr.size(); i++) {
+            if (abbr[i] != '.') {
+                remaining_abbr.push_back(abbr[i]);
+            }
+        }
+        // if the abbreviation ends with a plural s, remove it
+        if (remaining_abbr.size() > 0 && remaining_abbr.back() == 's') {
+            remaining_abbr.pop_back();
+        }
 
         std::deque<PagelessDocumentRect> raw_rects;
         std::vector<PagelessDocumentRect> merged_rects;
         CachedPageIndex& abbr_page_index = get_page_index(abbr_page);
 
         while (index > 0 && remaining_abbr.size() > 0){
-            if (super_fast_search_index[index] == ' ' || super_fast_search_index[index] == '\n') {
-                //if (QChar(super_fast_search_index[index+1]).toLower() == QChar(remaining_abbr.back()).toLower()){
+            if (
+                super_fast_search_index[index] == ' ' ||
+                super_fast_search_index[index] == '\n' ||
+                super_fast_search_index[index] == '-' ||
+                (super_fast_search_index[index] > 127)
+                ) {
+                if (QChar(super_fast_search_index[index+1]).toLower() == QChar(remaining_abbr.back()).toLower()){
                     remaining_abbr.pop_back();
                     if (remaining_abbr.size() == 0) {
                         break;
                     }
-                //}
+                }
             }
 
+            if (index - super_fast_page_begin_indices[abbr_page] < 0) {
+                break;
+            }
             PagelessDocumentRect rect = abbr_page_index.rects[index - super_fast_page_begin_indices[abbr_page]];
             /* overview_highlight_rects.push_back(DocumentRect(rect, super_fast_search_index_pages[index])); */
             raw_rects.push_back(rect);
