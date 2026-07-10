@@ -619,6 +619,18 @@ void MainWidget::handle_selection_mouse_edge_scrolling(QMouseEvent* mouse_event)
 }
 
 void MainWidget::mouseMoveEvent(QMouseEvent* mouse_event) {
+    if (is_window_dragging) {
+        if (!(QGuiApplication::mouseButtons() & Qt::MouseButton::LeftButton)) {
+            is_window_dragging = false;
+            unsetCursor();
+            return;
+        }
+
+        move(window_drag_start_frame_pos + (QCursor::pos() - window_drag_start_global_pos));
+        mouse_event->accept();
+        return;
+    }
+
     if (is_pinching){
         // no need to handle move events when a pinch to zoom is in progress
         return;
@@ -3020,6 +3032,12 @@ void MainWidget::mouseReleaseEvent(QMouseEvent* mevent) {
 
     if (is_drawing) {
         finish_drawing(mevent->pos());
+    if (is_window_dragging && mevent->button() == Qt::MouseButton::LeftButton) {
+        is_window_dragging = false;
+        unsetCursor();
+        mevent->accept();
+        return;
+    }
         invalidate_render();
         return;
     }
@@ -3191,6 +3209,15 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
     if (should_draw(false) && (mevent->button() == Qt::MouseButton::LeftButton)) {
         start_drawing();
         return;
+    if (mevent->button() == Qt::MouseButton::LeftButton && is_control_pressed && is_command_pressed) {
+        is_window_dragging = true;
+        window_drag_start_global_pos = QCursor::pos();
+        window_drag_start_frame_pos = frameGeometry().topLeft();
+        setCursor(Qt::ClosedHandCursor);
+        mevent->accept();
+        return;
+    }
+
     }
 
     if (!TOUCH_MODE && mevent->button() == Qt::MouseButton::LeftButton) {

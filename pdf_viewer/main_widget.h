@@ -317,6 +317,9 @@ public:
     // are we currently dragging the document
     bool is_dragging = false;
     // are we performing pinch to zoom gesture
+    bool is_window_dragging = false;
+    QPoint window_drag_start_global_pos;
+    QPoint window_drag_start_frame_pos;
     bool is_pinching = false;
 
     // are we currently freehand drawing on the document
