@@ -20,7 +20,6 @@
 
 #include <mupdf/pdf.h>
 
-#include "sqlite3.h"
 #include "checksum.h"
 #include "database.h"
 #include "utf8/checked.h"

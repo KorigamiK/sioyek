@@ -23,6 +23,8 @@ else{
 
 CONFIG += c++17
 DEFINES += QT_3DINPUT_LIB QT_OPENGL_LIB QT_OPENGLEXTENSIONS_LIB QT_WIDGETS_LIB
+unix: LIBS += -lsqlite3
+win32: LIBS += sqlite3.lib
 
 RESOURCES += resources.qrc
 
@@ -92,8 +94,6 @@ HEADERS += pdf_viewer/book.h \
            pdf_viewer/checksum.h \
            pdf_viewer/new_file_checker.h \
            pdf_viewer/coordinates.h \
-           pdf_viewer/sqlite3.h \
-           pdf_viewer/sqlite3ext.h \
            pdf_viewer/ui.h \
            pdf_viewer/path.h \
            pdf_viewer/utf8.h \
@@ -120,7 +120,6 @@ SOURCES += pdf_viewer/book.cpp \
            pdf_viewer/checksum.cpp \
            pdf_viewer/new_file_checker.cpp \
            pdf_viewer/coordinates.cpp \
-           pdf_viewer/sqlite3.c \
            pdf_viewer/ui.cpp \
            pdf_viewer/path.cpp \
            pdf_viewer/utils.cpp \

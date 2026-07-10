@@ -4,7 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
-#include "sqlite3.h"
+#include <sqlite3.h>
 #include "book.h"
 
 class CachedChecksummer;
@@ -144,5 +144,4 @@ public:
     bool generic_insert_run_query(std::string table_name,
         std::vector<std::pair<std::string, QVariant>> values);
 };
-
 

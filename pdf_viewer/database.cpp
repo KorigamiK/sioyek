@@ -501,8 +501,10 @@ bool handle_error(const QString& func_name, int error_code, char* error_message)
 
 bool DatabaseManager::open(const std::wstring& local_db_file_path, const std::wstring& global_db_file_path) {
 
+    constexpr int open_flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+
     std::string local_database_file_path_utf8 = utf8_encode(local_db_file_path);
-    int local_rc = sqlite3_open(local_database_file_path_utf8.c_str(), &local_db);
+    int local_rc = sqlite3_open_v2(local_database_file_path_utf8.c_str(), &local_db, open_flags, nullptr);
 
     if (local_rc) {
         std::cerr << "could not create local database" << sqlite3_errmsg(local_db) << std::endl;
@@ -513,7 +515,7 @@ bool DatabaseManager::open(const std::wstring& local_db_file_path, const std::ws
 
     if (local_db_file_path != global_db_file_path) {
         std::string global_database_file_path_utf8 = utf8_encode(global_db_file_path);
-        int global_rc = sqlite3_open(global_database_file_path_utf8.c_str(), &global_db);
+        int global_rc = sqlite3_open_v2(global_database_file_path_utf8.c_str(), &global_db, open_flags, nullptr);
 
         if (global_rc) {
             std::cerr << "could not create global database" << sqlite3_errmsg(global_db) << std::endl;

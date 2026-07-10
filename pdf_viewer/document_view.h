@@ -11,7 +11,6 @@
 #include <mutex>
 
 #include <mupdf/fitz.h>
-#include "sqlite3.h"
 
 #include "coordinates.h"
 #include "book.h"
