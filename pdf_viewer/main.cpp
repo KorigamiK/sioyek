@@ -914,6 +914,10 @@ int main(int argc, char* args[]) {
         handle_args(QStringList() << QCoreApplication::applicationFilePath() << file_name);
         });
 
+    // Replay any QFileOpenEvent(s) macOS delivered before this handler existed
+    // (cold launch from Finder's "Open with"). Must run after the connect above.
+    app.flush_pending_files();
+
     // live reload the config files, no need to live reload on android because we are not changing config files anyway
 #ifndef SIOYEK_ANDROID
     QObject::connect(&pref_file_watcher, &QFileSystemWatcher::fileChanged, [&]() {
