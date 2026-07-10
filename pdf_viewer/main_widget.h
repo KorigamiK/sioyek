@@ -209,6 +209,7 @@ public:
     // A flag which indicates whether the application should quit. We use this to inform other threads
     // (e.g. the PDF rendering thread) that they should exit.
     bool* should_quit = nullptr;
+    bool close_event_handled = false;
 
     // last position when mouse was clicked in absolute document space
     AbsoluteDocumentPos last_mouse_down;

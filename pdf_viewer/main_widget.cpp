@@ -1381,6 +1381,8 @@ MainWidget::MainWidget(fz_context* mupdf_context,
 }
 
 MainWidget::~MainWidget() {
+    handle_close_event();
+
     if (is_reading) {
         is_reading = false;
         get_tts()->stop();
@@ -4760,6 +4762,11 @@ std::wstring MainWidget::get_window_configuration_string() {
 }
 
 void MainWidget::handle_close_event() {
+    if (close_event_handled) {
+        return;
+    }
+    close_event_handled = true;
+
     save_auto_config();
 #ifndef SIOYEK_ANDROID
     persist(true);
