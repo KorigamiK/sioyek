@@ -1376,6 +1376,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     set_color_mode_to_system_theme();
 #endif
 
+    setFocusPolicy(Qt::StrongFocus);
     setFocus();
 }
 
@@ -6642,6 +6643,13 @@ bool MainWidget::event(QEvent* event) {
         return true;
     }
 
+        // when the window is activated without a mouse click (e.g. by a tiling
+        // window manager on macOS), no widget has keyboard focus, so key presses
+        // are rejected by the OS. Reclaim focus unless a child (e.g. the command
+        // line edit) already has it.
+        if (focusWidget() == nullptr) {
+            setFocus(Qt::ActiveWindowFocusReason);
+        }
     //if (event->type() == QEvent::TabletEVe)
     if (TOUCH_MODE || event->type() == QEvent::Gesture) {
 
