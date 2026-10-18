@@ -4,7 +4,7 @@ project(sioyek VERSION 2.0.0 LANGUAGES C CXX)
 include(FindPackageHandleStandardArgs)
 include(GNUInstallDirs)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -57,6 +57,10 @@ set_target_properties(MuPDF::MuPDF PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${MUPDF_INCLUDE_DIR}"
 )
 
+if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
+  set_property(TARGET WrapOpenGL::WrapOpenGL PROPERTY INTERFACE_LINK_LIBRARIES "-framework OpenGL")
+endif()
+
 qt_standard_project_setup()
 
 qt_add_executable(sioyek WIN32 MACOSX_BUNDLE
@@ -108,6 +112,27 @@ qt_add_executable(sioyek WIN32 MACOSX_BUNDLE
 )
 
 if(APPLE)
+    file(GLOB_RECURSE SIOYEK_SHADER_FILES CONFIGURE_DEPENDS
+      "${CMAKE_CURRENT_SOURCE_DIR}/pdf_viewer/shaders/*"
+    )
+
+    target_sources(sioyek PRIVATE
+      pdf_viewer/keys.config
+      pdf_viewer/prefs.config
+      ${SIOYEK_SHADER_FILES}
+    )
+
+    set_source_files_properties(
+      pdf_viewer/keys.config
+      pdf_viewer/prefs.config
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources"
+    )
+
+    set_source_files_properties(
+      ${SIOYEK_SHADER_FILES}
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/shaders"
+    )
+
   target_sources(sioyek PRIVATE
         pdf_viewer/macos_specific.mm
   )
@@ -257,6 +282,21 @@ if(APPLE)
       list(APPEND SIOYEK_DEPLOY_TOOL_OPTIONS_ARG "-qmlimport=${prefix}/share/qt/qml")
     endif()
   endforeach()
+endif()
+
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+  install(DIRECTORY pdf_viewer/shaders/
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/sioyek/shaders)
+  install(FILES tutorial.pdf
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/sioyek)
+  install(FILES pdf_viewer/keys.config pdf_viewer/prefs.config
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/sioyek)
+  install(FILES resources/sioyek.desktop
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+  install(FILES resources/sioyek-icon-linux.png
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps)
+  install(FILES resources/sioyek.1
+          DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 endif()
 
 qt_generate_deploy_app_script(

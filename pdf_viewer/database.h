@@ -1,9 +1,11 @@
 #pragma once
 
 #include <iostream>
+#include <optional>
 #include <vector>
 #include <iostream>
 #include <string>
+#include <mutex>
 #include <sqlite3.h>
 #include "book.h"
 
@@ -20,6 +22,7 @@ struct MarkInDatabase {
 
 class DatabaseManager {
 private:
+    std::recursive_mutex db_mutex;
     sqlite3* local_db;
     sqlite3* global_db;
     bool create_opened_books_table();

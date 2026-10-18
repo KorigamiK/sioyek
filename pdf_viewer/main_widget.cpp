@@ -1,4 +1,4 @@
-﻿// deduplicate database code
+// deduplicate database code
 // make sure jsons exported by previous sioyek versions can be imported
 // maybe: use a better method to handle deletion of canceled download portals
 // change find_closest_*_index and argminf to use the fact that the list is sorted and speed up the search (not important if there are not a ridiculous amount of highlight/bookmarks)
@@ -13,6 +13,7 @@
 // smartviewcandidates are not filled when right clicking on a link?
 
 
+#include "coordinates.h"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -137,6 +138,7 @@ static void set_titlebar_visible(QWidget* widget, bool visible, bool should_show
 extern int next_window_id;
 
 extern bool SHOULD_USE_MULTIPLE_MONITORS;
+extern bool FAIL_SAFE_AUTO_SAVE_SESSION;
 extern bool MULTILINE_MENUS;
 extern bool SORT_BOOKMARKS_BY_LOCATION;
 extern bool SORT_HIGHLIGHTS_BY_LOCATION;
@@ -153,6 +155,7 @@ extern std::wstring PAPER_SEARCH_CONTRIB_PATH;
 extern bool FUZZY_SEARCHING;
 extern bool AUTO_RENAME_DOWNLOADED_PAPERS;
 extern bool SHOW_STATUSBAR_ONLY_WHEN_MOUSE_OVER;
+extern bool HIGHLIGHT_LINK_DESTINATION;
 
 extern float TEXT_SELECTION_MINIMUM_DISTANCE;
 extern float VISUAL_MARK_NEXT_PAGE_FRACTION;
@@ -245,7 +248,10 @@ extern bool USE_CUSTOM_COLOR_FOR_DARK_SYSTEM_THEME;
 extern bool ALLOW_MAIN_VIEW_SCROLL_WHILE_IN_OVERVIEW;
 extern bool SAME_WIDTH;
 extern bool KEYBOARD_SELECT_INCLUSIVE;
+extern bool SHOW_COMMAND_HINTS;
+extern bool RESTORE_ALL_WINDOWS_ON_STARTUP;
 
+extern bool FREE_TOUCHPAD_MOVEMENT;
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
 extern std::wstring CONTEXT_MENU_ITEMS;
@@ -338,7 +344,8 @@ void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multilin
     int selected_index,
     std::function<void(T*)> on_select,
     std::function<void(T*)> on_delete,
-    std::function<void(T*)> on_edit = nullptr
+    std::function<void(T*)> on_edit = nullptr,
+    bool last_column_fixed = false
 ) {
     if (columns.size() > 1) {
 
@@ -381,7 +388,7 @@ void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multilin
                     if (val && on_delete) {
                         on_delete(val);
                     }
-                });
+                }, last_column_fixed);
             w->set_filter_column_index(-1);
             if (on_edit) {
                 w->set_on_edit_function(on_edit);
@@ -533,6 +540,8 @@ void MainWidget::resizeEvent(QResizeEvent* resize_event) {
             status_label->show();
         }
     }
+
+    update_command_hints_position();
 
     if ((main_document_view->get_document() != nullptr) && (main_document_view->get_zoom_level() == 0)) {
         main_document_view->fit_to_page_width();
@@ -842,56 +851,76 @@ void MainWidget::mouseMoveEvent(QMouseEvent* mouse_event) {
     }
 }
 
+void MainWidget::update_text_selection_with_begin_and_end(AbsoluteDocumentPos begin, AbsoluteDocumentPos end) {
+    selection_begin = begin;
+    selection_end = end;
+
+    if (selection_mode == SelectionMode::Line) {
+        main_document_view->get_line_selection(selection_begin,
+            selection_end,
+            main_document_view->selected_character_rects,
+            selected_text);
+    }
+    else {
+        main_document_view->get_text_selection(selection_begin,
+            selection_end,
+            selection_mode == SelectionMode::Word ,
+            main_document_view->selected_character_rects,
+            selected_text);
+    }
+    selected_text_is_dirty = false;
+
+    validate_render();
+    last_text_select_time = QTime::currentTime();
+}
+
 void MainWidget::update_text_selection(AbsoluteDocumentPos abs_mpos) {
     // When selecting, we occasionally update selected text
     //todo: maybe have a timer event that handles this periodically
     int msecs_since_last_text_select = last_text_select_time.msecsTo(QTime::currentTime());
     if (msecs_since_last_text_select > 16 || msecs_since_last_text_select < 0) {
-
-        selection_begin = last_mouse_down;
-        selection_end = abs_mpos;
-        //fz_point selection_begin = { last_mouse_down.x(), last_mouse_down.y()};
-        //fz_point selection_end = { document_x, document_y };
-
-        if (selection_mode == SelectionMode::Line) {
-            main_document_view->get_line_selection(selection_begin,
-                selection_end,
-                main_document_view->selected_character_rects,
-                selected_text);
-        }
-        else {
-            main_document_view->get_text_selection(selection_begin,
-                selection_end,
-                selection_mode == SelectionMode::Word ,
-                main_document_view->selected_character_rects,
-                selected_text);
-        }
-        selected_text_is_dirty = false;
-
-        validate_render();
-        last_text_select_time = QTime::currentTime();
+        update_text_selection_with_begin_and_end(selection_begin, abs_mpos);
     }
 }
 
 void MainWidget::persist(bool persist_drawings) {
     main_document_view->persist(persist_drawings);
 
-    // write the address of the current document in a file so that the next time
-    // we launch the application, we open this document
-    if (main_document_view->get_document()) {
+    if (RESTORE_ALL_WINDOWS_ON_STARTUP) {
         std::ofstream last_path_file(last_opened_file_address_path.get_path_utf8());
-
-        //std::string encoded_file_name_str = utf8_encode(main_document_view->get_document()->get_path());
-        std::string encoded_file_name_str = utf8_encode(get_current_tabs_file_names());
-        last_path_file << encoded_file_name_str.c_str() << std::endl;
+        for (auto window : windows) {
+            if (window->main_document_view->get_document()) {
+                window->main_document_view->persist(persist_drawings);
+                QByteArray geom = window->saveGeometry();
+                std::string geom_hex = geom.toHex().constData();
+                last_path_file << "[window] " << geom_hex << "\n";
+                std::string tabs_str = utf8_encode(window->get_current_tabs_file_names());
+                last_path_file << tabs_str;
+                if (!tabs_str.empty() && tabs_str.back() != '\n') {
+                    last_path_file << "\n";
+                }
+            }
+        }
         last_path_file.close();
+    }
+    else {
+        // write the address of the current document in a file so that the next time
+        // we launch the application, we open this document
+        if (main_document_view->get_document()) {
+            std::ofstream last_path_file(last_opened_file_address_path.get_path_utf8());
+
+            //std::string encoded_file_name_str = utf8_encode(main_document_view->get_document()->get_path());
+            std::string encoded_file_name_str = utf8_encode(get_current_tabs_file_names());
+            last_path_file << encoded_file_name_str.c_str() << std::endl;
+            last_path_file.close();
+        }
     }
 }
 void MainWidget::closeEvent(QCloseEvent* close_event) {
     handle_close_event();
 }
 
-MainWidget::MainWidget(MainWidget* other) : MainWidget(other->mupdf_context, other->db_manager, other->document_manager, other->config_manager, other->command_manager, other->input_handler, other->checksummer, other->should_quit) {
+MainWidget::MainWidget(MainWidget* other) : MainWidget(other->mupdf_context, other->db_manager, other->document_manager, other->config_manager, other->command_manager, other->input_handler, other->checksummer, other->should_quit, other->pdf_renderer) {
 
 }
 
@@ -903,6 +932,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     InputHandler* input_handler,
     CachedChecksummer* checksummer,
     bool* should_quit_ptr,
+    PdfRenderer* pdf_renderer,
     QWidget* parent) :
 #ifdef SIOYEK_ANDROID
     QQuickWidget(parent),
@@ -934,9 +964,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     central_widget->setMouseTracking(true);
 
     inverse_search_command = INVERSE_SEARCH_COMMAND;
-    pdf_renderer = new PdfRenderer(4, should_quit_ptr, mupdf_context);
-    pdf_renderer->set_num_cached_pages(NUM_CACHED_PAGES);
-    pdf_renderer->start_threads();
+    this->pdf_renderer = pdf_renderer;
 
 
     //scratchpad = new ScratchPad();
@@ -980,12 +1008,20 @@ MainWidget::MainWidget(fz_context* mupdf_context,
 
     text_command_line_edit_label = new QLabel(this);
     text_command_line_edit = new MyLineEdit(this);
+    command_hints_label = new QLabel(this);
 
     text_command_line_edit_label->setFont(label_font);
     text_command_line_edit->setFont(label_font);
+    command_hints_label->setFont(label_font);
 
     text_command_line_edit_label->setStyleSheet(get_status_stylesheet());
     text_command_line_edit->setStyleSheet(get_status_stylesheet());
+    command_hints_label->setStyleSheet(get_status_stylesheet());
+    command_hints_label->setWordWrap(true);
+    command_hints_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    command_hints_label->setMargin(8);
+    command_hints_label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    command_hints_label->hide();
 
     text_command_line_edit_container_layout->addWidget(text_command_line_edit_label);
     text_command_line_edit_container_layout->addWidget(text_command_line_edit);
@@ -1210,7 +1246,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
 
         });
 
-    connect(validation_interval_timer, &QTimer::timeout, [&]() {
+    connect(validation_interval_timer, &QTimer::timeout, this, [this]() {
 
         if (PERSISTANCE_PERIOD > 0) {
             QDateTime now = QDateTime::currentDateTime();
@@ -1275,10 +1311,16 @@ MainWidget::MainWidget(fz_context* mupdf_context,
                     (doc->get_milies_since_last_edit_time() > RELOAD_INTERVAL_MILISECONDS)) {
 
                     if (is_doc_valid(this->mupdf_context, utf8_encode(doc->get_path()))) {
+                        pop_all_widgets();
                         doc->reload();
-                        pdf_renderer->clear_cache();
-                        main_document_view->fill_cached_virtual_rects(true);
-                        invalidate_render();
+                        // update all the main_widgets that are using this document
+                        for (auto window : windows) {
+                            if (window->doc() == doc) {
+                                window->pdf_renderer->clear_cache();
+                                window->main_document_view->fill_cached_virtual_rects(true);
+                                window->invalidate_render();
+                            }
+                        }
                     }
                 }
             }
@@ -1377,11 +1419,6 @@ MainWidget::~MainWidget() {
     }
     validation_interval_timer->stop();
     remove_self_from_windows();
-
-    if (windows.size() == 0) {
-        *should_quit = true;
-        pdf_renderer->join_threads();
-    }
 
     if (tts) {
         delete tts;
@@ -1652,6 +1689,7 @@ void MainWidget::handle_escape() {
     }
 
     smooth_y_move_amount = {};
+    hide_command_hints();
     clear_selection_indicators();
     typing_location = {};
     if (pending_command_instance) {
@@ -1834,7 +1872,7 @@ void MainWidget::validate_render() {
                     main_document_view->get_document()->get_accum_page_height(current_page) +
                     main_document_view->get_document()->get_page_height(current_page) / 2 + statusbar_factor);
             }
-            if (IGNORE_WHITESPACE_IN_PRESENTATION_MODE) {
+            if (IGNORE_WHITESPACE_IN_PRESENTATION_MODE && !main_document_view->is_two_page_mode()) {
                 main_document_view->fit_to_page_height(true);
             }
             else {
@@ -1883,6 +1921,7 @@ void MainWidget::validate_render() {
 void MainWidget::validate_ui() {
     status_label_left->setText(QString::fromStdWString(get_status_string(false)));
     status_label_right->setText(QString::fromStdWString(get_status_string(true)));
+    update_command_hints_position();
     is_ui_invalidated = false;
 }
 
@@ -1909,11 +1948,14 @@ void MainWidget::on_config_file_changed(ConfigManager* new_config) {
 
     text_command_line_edit_label->setStyleSheet(get_status_stylesheet());
     text_command_line_edit->setStyleSheet(get_status_stylesheet());
+    command_hints_label->setFont(QFont(get_status_font_face_name()));
+    command_hints_label->setStyleSheet(get_status_stylesheet());
     //status_label->setStyleSheet(get_status_stylesheet());
 
     int status_bar_height = get_status_bar_height();
     status_label->move(0, main_window_height - status_bar_height);
     status_label->resize(size().width(), status_bar_height);
+    update_command_hints_position();
 
     //text_command_line_edit_container->setStyleSheet("background-color: black; color: white; border: none;");
 }
@@ -2146,6 +2188,11 @@ void MainWidget::open_document(const std::wstring& path, std::optional<float> of
         update_scrollbar();
     }
 
+    // save current session
+    if (FAIL_SAFE_AUTO_SAVE_SESSION) {
+        persist(true);
+    }
+
     deselect_document_indices();
     invalidate_render();
 
@@ -2334,6 +2381,14 @@ void MainWidget::key_event(bool released, QKeyEvent* kevent, bool is_auto_repeat
             is_meta_pressed,
             kevent->modifiers() & Qt::AltModifier,
             &num_repeats);
+        
+        if (SHOW_COMMAND_HINTS && !input_handler->is_on_final_or_root_node()){
+            auto commands_with_current_prefix = input_handler->get_commands_with_current_prefix();
+            show_command_hints(commands_with_current_prefix);
+        }
+        else {
+            hide_command_hints();
+        }
 
         if (commands) {
             if (last_performed_command && last_performed_command->is_holdable() && commands->get_name() == last_performed_command->get_name()) {
@@ -2350,6 +2405,80 @@ void MainWidget::key_event(bool released, QKeyEvent* kevent, bool is_auto_repeat
     }
 
 }
+
+void MainWidget::hide_command_hints() {
+    if (!command_hints_label) {
+        return;
+    }
+
+    command_hints_label->clear();
+    command_hints_label->hide();
+}
+
+void MainWidget::update_command_hints_position() {
+    if (!command_hints_label || !command_hints_label->isVisible()) {
+        return;
+    }
+
+    const int outer_margin = 12;
+    int available_width = std::max(main_window_width - (outer_margin * 2), 120);
+    command_hints_label->setMaximumWidth(std::min(available_width, available_width));
+    command_hints_label->adjustSize();
+
+    int bottom_offset = outer_margin;
+    if (status_label && status_label->isVisible()) {
+        bottom_offset += status_label->height();
+    }
+
+    int label_x = std::max(outer_margin, main_window_width - command_hints_label->width() - outer_margin);
+    int label_y = std::max(outer_margin, main_window_height - command_hints_label->height() - bottom_offset);
+    command_hints_label->move(label_x, label_y);
+    command_hints_label->raise();
+}
+
+void MainWidget::show_command_hints(std::unordered_map<std::string, std::vector<std::string>>& hints){
+    // when there are multiple commands with the current command prefix, we show the possible continuations
+    if (hints.empty()) {
+        hide_command_hints();
+        return;
+    }
+
+    std::vector<std::pair<QString, QStringList>> sorted_hints;
+    sorted_hints.reserve(hints.size());
+
+    for (const auto& [command_name, continuations] : hints) {
+        QStringList unique_continuations;
+        std::vector<std::string> sorted_continuations = continuations;
+        std::sort(sorted_continuations.begin(), sorted_continuations.end());
+        sorted_continuations.erase(std::unique(sorted_continuations.begin(), sorted_continuations.end()), sorted_continuations.end());
+
+        for (const std::string& continuation : sorted_continuations) {
+            unique_continuations.push_back(QString::fromStdString(continuation));
+        }
+
+        sorted_hints.push_back({ QString::fromStdString(command_name), unique_continuations });
+    }
+
+    std::sort(sorted_hints.begin(), sorted_hints.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
+
+    QStringList lines;
+    for (const auto& [command_name, continuations] : sorted_hints) {
+        if (continuations.empty()) {
+            lines.push_back(command_name);
+        }
+        else {
+            lines.push_back(QString("%1: %2").arg(command_name, continuations.join(", ")));
+        }
+    }
+
+    command_hints_label->setText(lines.join("\n"));
+    command_hints_label->show();
+    update_command_hints_position();
+
+}
+
 
 void MainWidget::handle_right_click(WindowPos click_pos, bool down, bool is_shift_pressed, bool is_control_pressed, bool is_command_pressed, bool is_alt_pressed) {
 
@@ -3290,11 +3419,13 @@ void MainWidget::wheelEvent(QWheelEvent* wevent) {
     int num_repeats = abs(wevent->angleDelta().y() / 120);
     float num_repeats_f_y = abs(wevent->angleDelta().y() / 120.0);
     float num_repeats_f_x = abs(wevent->angleDelta().x() / 120.0);
-    if (std::abs(num_repeats_f_x) > std::abs(num_repeats_f_y)){
-        num_repeats_f_y = 0;
-    }
-    else{
-        num_repeats_f_x = 0;
+    if (!FREE_TOUCHPAD_MOVEMENT){
+        if (std::abs(num_repeats_f_x) > std::abs(num_repeats_f_y)){
+            num_repeats_f_y = 0;
+        }
+        else{
+            num_repeats_f_x = 0;
+        }
     }
 #else
     int num_repeats = abs(wevent->delta() / 120);
@@ -3505,7 +3636,7 @@ void MainWidget::show_mark_selector() {
         });
 }
 
-void MainWidget::show_textbar(const std::wstring& command_name, const std::wstring& initial_value) {
+void MainWidget::show_textbar(const std::wstring& command_name, const std::wstring& initial_value, bool is_password) {
     QString init = "";
     text_suggestion_index = 0;
 
@@ -3514,7 +3645,7 @@ void MainWidget::show_textbar(const std::wstring& command_name, const std::wstri
     }
     if (TOUCH_MODE) {
 
-        TouchTextEdit* edit_widget = new TouchTextEdit(QString::fromStdWString(command_name), init, this);
+        TouchTextEdit* edit_widget = new TouchTextEdit(QString::fromStdWString(command_name), init, this, is_password);
 
         QObject::connect(edit_widget, &TouchTextEdit::confirmed, [&](QString text) {
             pop_current_widget();
@@ -3542,6 +3673,9 @@ void MainWidget::show_textbar(const std::wstring& command_name, const std::wstri
         if (initial_value.size() > 0) {
             text_command_line_edit->selectAll();
         }
+        if (is_password) {
+            text_command_line_edit->setEchoMode(QLineEdit::EchoMode::Password);
+        }
     }
 }
 
@@ -3562,6 +3696,22 @@ void MainWidget::toggle_window_configuration() {
         apply_window_params_for_one_window_mode();
     }
     else {
+        apply_window_params_for_two_window_mode();
+        if (helper_window_overlaps_main_window()) {
+            helper_window->activateWindow();
+        }
+        else {
+            main_window->activateWindow();
+        }
+    }
+}
+
+void MainWidget::show_portal_window() {
+
+    QWidget* helper_window = get_top_level_widget(helper_opengl_widget());
+    QWidget* main_window = get_top_level_widget(opengl_widget);
+
+    if (!is_helper_visible()) {
         apply_window_params_for_two_window_mode();
         if (helper_window_overlaps_main_window()) {
             helper_window->activateWindow();
@@ -3953,6 +4103,14 @@ void MainWidget::push_current_widget(QWidget* new_widget) {
         current_widget_stack.back()->hide();
     }
     current_widget_stack.push_back(new_widget);
+}
+
+void MainWidget::pop_all_widgets(){
+    while (!current_widget_stack.empty()) {
+        current_widget_stack.back()->hide();
+        current_widget_stack.back()->deleteLater();
+        current_widget_stack.pop_back();
+    }
 }
 
 void MainWidget::pop_current_widget(bool canceled) {
@@ -4671,7 +4829,7 @@ void MainWidget::handle_link_click(const PdfLink& link) {
         goto_page_with_page_number(page);
     }
     else {
-        handle_goto_link_with_page_and_offset(page, offset_y);
+        handle_goto_link_with_page_and_offset(page, offset_y, offset_x);
     }
 }
 
@@ -5029,7 +5187,23 @@ int MainWidget::get_page_intersecting_rect_index(DocumentRect r) {
         }
     }
     if (selected_index == -1) {
-        return line_rects.size() - 1;
+        // No line overlaps the rect horizontally (e.g. a link destination whose x is
+        // only a page margin, left of the text). Fall back to the topmost line whose
+        // center is at or below the rect's center, rather than snapping to the last
+        // line on the page. This matches a destination's "scroll the anchor to the
+        // top" semantics. Existing callers (synctex, focus_rect) pass rects that
+        // overlap a line, so they take the area path above and never reach this.
+        float anchor_y = (abs_rect.y0 + abs_rect.y1) / 2.0f;
+        for (int i = 0; i < (int)line_rects.size(); i++) {
+            float center_y = (line_rects[i].y0 + line_rects[i].y1) / 2.0f;
+            if (center_y < anchor_y) {
+                continue;
+            }
+            if ((selected_index == -1) ||
+                (center_y < (line_rects[selected_index].y0 + line_rects[selected_index].y1) / 2.0f)) {
+                selected_index = i;
+            }
+        }
     }
     return selected_index;
 }
@@ -5043,6 +5217,10 @@ void MainWidget::focus_rect(DocumentRect rect) {
 }
 
 void MainWidget::focus_text(int page, const std::wstring& text) {
+    if (page < 0 || page >= doc()->num_pages()) {
+        return;
+    }
+
     std::vector<std::wstring> line_texts;
     std::vector<AbsoluteRect> line_rects;
     line_rects = main_document_view->get_document()->get_page_lines(page, &line_texts);
@@ -5616,7 +5794,11 @@ void MainWidget::advance_command(std::unique_ptr<Command> new_command, std::wstr
 
             Requirement next_requirement = pending_command_instance->next_requirement(this).value();
             if (next_requirement.type == RequirementType::Text) {
-                show_textbar(utf8_decode(next_requirement.name), pending_command_instance->get_text_default_value());
+                show_textbar(utf8_decode(next_requirement.name), pending_command_instance->get_text_default_value(), false);
+                text_command_line_edit->setEchoMode(QLineEdit::EchoMode::Normal);
+            }
+            else if (next_requirement.type == RequirementType::Password) {
+                show_textbar(utf8_decode(next_requirement.name), pending_command_instance->get_text_default_value(), true);
             }
             else if (next_requirement.type == RequirementType::Symbol) {
                 if (TOUCH_MODE) {
@@ -5955,7 +6137,7 @@ void MainWidget::handle_goto_bookmark_global() {
             BookMark bm = desc_bm_pair.second;
             std::wstring file_name = Path(path.value()).filename().value_or(L"");
             descs.push_back(ITEM_LIST_PREFIX + L" " + bm.description);
-            file_names.push_back(truncate_string(file_name, 50));
+            file_names.push_back(file_name);
             book_states.push_back({ path.value(), bm.get_y_offset(), bm.uuid});
         }
     }
@@ -5969,8 +6151,9 @@ void MainWidget::handle_goto_bookmark_global() {
         },
         [&](BookState* book_state) {
             db_manager->delete_bookmark(book_state->uuid);
-        }
-        );
+        },
+        nullptr,
+        true);
     show_current_widget();
 }
 
@@ -6084,7 +6267,7 @@ void MainWidget::handle_goto_highlight_global() {
                 has_annots = true;
             }
 
-            file_names.push_back(truncate_string(file_name, 50));
+            file_names.push_back(file_name);
 
             book_states.push_back({ path.value(), hl.selection_begin.y, hl.uuid });
 
@@ -6113,7 +6296,9 @@ void MainWidget::handle_goto_highlight_global() {
             }
         }, [&](BookState* state) {
             db_manager->delete_highlight(state->uuid);
-        });
+        },
+        nullptr,
+        true);
 
     show_current_widget();
 }
@@ -6170,8 +6355,9 @@ void MainWidget::handle_goto_toc() {
             else {
 
                 std::vector<int> selected_index = main_document_view->get_current_chapter_recursive_index();
+                auto* cached_toc_model = main_document_view->get_document()->get_toc_model();
                 //if (!TOUCH_MODE) {
-                set_current_widget(new FilteredTreeSelect<int>(FUZZY_SEARCHING, main_document_view->get_document()->get_toc_model(),
+                set_current_widget(new FilteredTreeSelect<int>(FUZZY_SEARCHING, cached_toc_model,
                     [&](const std::vector<int>& indices) {
                         TocNode* toc_node = get_toc_node_from_indices(main_document_view->get_document()->get_toc(),
                         indices);
@@ -6294,6 +6480,43 @@ void MainWidget::handle_move_screen(int amount) {
     }
 }
 
+MainWidget* MainWidget::create_restored_window(MainWidget* sibling, const WindowState& state) {
+    MainWidget* new_w = new MainWidget(sibling);
+    new_w->execute_macro_if_enabled(STARTUP_COMMANDS);
+    new_w->open_tabs(state.tabs);
+    new_w->open_document(state.tabs[0]);
+    if (!state.geometry_hex.empty()) {
+        new_w->restoreGeometry(QByteArray::fromHex(QByteArray::fromStdString(state.geometry_hex)));
+    } else {
+        new_w->apply_window_params_for_one_window_mode();
+    }
+    
+    auto color_mode = sibling->opengl_widget->get_current_color_mode();
+    if (color_mode == PdfViewOpenGLWidget::ColorPalette::Dark) {
+        new_w->opengl_widget->set_dark_mode(true);
+    }
+    else if (color_mode == PdfViewOpenGLWidget::ColorPalette::Custom) {
+        new_w->opengl_widget->set_custom_color_mode(true);
+    }
+    
+    new_w->show();
+    windows.push_back(new_w);
+    return new_w;
+}
+
+void MainWidget::handle_delete_selected_annotation() {
+    if (selected_highlight_index != -1) {
+        doc()->delete_highlight_with_index(selected_highlight_index);
+        set_selected_highlight_index(-1);
+        return;
+    }
+    if (selected_bookmark_index != -1){
+        doc()->delete_bookmark_with_index(selected_bookmark_index);
+        set_selected_bookmark_index(-1);
+        return;
+    }
+}
+
 MainWidget* MainWidget::handle_new_window() {
     MainWidget* new_widget = new MainWidget(mupdf_context,
         db_manager,
@@ -6302,8 +6525,9 @@ MainWidget* MainWidget::handle_new_window() {
         command_manager,
         input_handler,
         checksummer,
-        should_quit);
-    new_widget->open_document(main_document_view->get_state());
+        should_quit,
+        pdf_renderer);
+   	new_widget->open_document(main_document_view->get_state().document_path, std::nullopt, main_document_view->get_offset_y());
     new_widget->show();
     new_widget->apply_window_params_for_one_window_mode();
     new_widget->execute_macro_if_enabled(STARTUP_COMMANDS);
@@ -6396,7 +6620,7 @@ void MainWidget::handle_open_link(const std::wstring& text, bool copy) {
                     goto_page_with_page_number(page - 1);
                 }
                 else {
-                    handle_goto_link_with_page_and_offset(page - 1, offset_y);
+                    handle_goto_link_with_page_and_offset(page - 1, offset_y, offset_x);
                 }
             }
         }
@@ -6491,7 +6715,15 @@ void MainWidget::handle_goto_window() {
                 windows[*window_id]->activateWindow();
             }
         },
-        this));
+        this,
+    [&](int* on_delete){
+        // close the selected window, if it is the current window, we should also focus the next window in the list
+        if (*on_delete < windows.size()) {
+            MainWidget* window_to_close = windows[*on_delete];
+            windows.erase(windows.begin() + *on_delete);
+            window_to_close->close();
+        }
+    }));
     show_current_widget();
 }
 
@@ -7392,6 +7624,7 @@ void MainWidget::select_next_char(){
         float mid_x = (main_document_view->selected_character_rects.back().x0 + main_document_view->selected_character_rects.back().x1) / 2;
         float mid_y = (main_document_view->selected_character_rects.back().y0 + main_document_view->selected_character_rects.back().y1) / 2;
         mid_x += doc()->get_page_width(get_current_page_number()) / 2;
+        mid_y -= doc()->get_accum_page_height(get_current_page_number());
 
         fz_point point = {mid_x, mid_y};
         fz_stext_char* next_char = doc()->get_next_char_after_selection(get_current_page_number(), point);
@@ -7413,7 +7646,7 @@ void MainWidget::unselect_last_char(){
 }
 
 void MainWidget::handle_debug_command() {
-    select_word_under_cursor();
+    
 }
 
 void MainWidget::export_command_names(std::wstring file_path){
@@ -10368,6 +10601,7 @@ DocumentView* MainWidget::helper_document_view(){
 void MainWidget::hide_command_line_edit(){
     text_command_line_edit->setText("");
     text_command_line_edit_container->hide();
+    hide_command_hints();
     text_suggestion_index = 0;
     pending_command_instance = {};
     setFocus();
@@ -10914,40 +11148,92 @@ void MainWidget::set_selected_bookmark_index(int index) {
 }
 
 void MainWidget::handle_highlight_tags_pre_perform(const std::vector<int>& visible_highlight_indices) {
-    const std::vector<Highlight>& highlights = doc()->get_highlights();
-
-    std::vector<DocumentRect> highlight_rects;
+    std::vector<SioyekVisibleObjectIndex> visible_object_indices;
     for (auto ind : visible_highlight_indices) {
-        const Highlight& highlight = highlights[ind];
-        if (highlight.highlight_rects.size() > 0) {
-            highlight_rects.push_back(highlight.highlight_rects[0].to_document(doc()));
-        }
+        visible_object_indices.push_back(SioyekVisibleObjectIndex{ SioyekVisibleObjectType::Highlight, ind });
     }
-
-    opengl_widget->set_highlight_words(highlight_rects);
-    opengl_widget->set_should_highlight_words(true);
+    return handle_visible_objects_tags_pre_perform(visible_object_indices);
 
 }
 
 void MainWidget::handle_visible_bookmark_tags_pre_perform(const std::vector<int>& visible_bookmark_indices){
+    std::vector<SioyekVisibleObjectIndex> visible_object_indices;
+    for (auto ind : visible_bookmark_indices) {
+        visible_object_indices.push_back(SioyekVisibleObjectIndex{ SioyekVisibleObjectType::Bookmark, ind });
+    }
+    return handle_visible_objects_tags_pre_perform(visible_object_indices);
+}
+
+void MainWidget::handle_visible_objects_tags_pre_perform(const std::vector<SioyekVisibleObjectIndex>& visible_object_indices) {
     const std::vector<BookMark>& bookmarks = doc()->get_bookmarks();
 
-    std::vector<DocumentRect> bookmark_rects;
-    for (auto ind : visible_bookmark_indices) {
-        const BookMark& bookmark = bookmarks[ind];
-        AbsoluteRect bookmark_rect = bookmark.get_rectangle();
-        bookmark_rects.push_back(bookmark_rect.to_document(doc()));
+    std::vector<DocumentRect> annotation_rects;
+    for (auto obj_index : visible_object_indices) {
+        if (obj_index.type == SioyekVisibleObjectType::Bookmark) {
+            const BookMark& bookmark = bookmarks[obj_index.index];
+            AbsoluteRect bookmark_rect = bookmark.get_rectangle();
+            annotation_rects.push_back(bookmark_rect.to_document(doc()));
+        }
+        else if (obj_index.type == SioyekVisibleObjectType::Highlight) {
+            const Highlight& highlight = doc()->get_highlights()[obj_index.index];
+            if (highlight.highlight_rects.size() > 0) {
+                annotation_rects.push_back(highlight.highlight_rects[0].to_document(doc()));
+            }
+            else{
+                DocumentRect empty_rect;
+                empty_rect.page = 0;
+                empty_rect.rect = { 0, 0, 0, 0 };
+                annotation_rects.push_back(empty_rect);
+            }
+        }
     }
 
-    opengl_widget->set_highlight_words(bookmark_rects);
+    opengl_widget->set_highlight_words(annotation_rects);
     opengl_widget->set_should_highlight_words(true);
+
 }
 
 void MainWidget::clear_keyboard_select_highlights() {
     opengl_widget->set_should_highlight_words(false);
 }
 
-void MainWidget::handle_goto_link_with_page_and_offset(int page, float y_offset) {
+void MainWidget::highlight_link_destination(int page, float y_offset, float x_offset){
+    const int LINK_TARGET_SIZE = 10;
+
+    DocumentPos top_left {
+        .page = page,
+        .x = x_offset - LINK_TARGET_SIZE,
+        .y = y_offset - LINK_TARGET_SIZE
+    };
+
+    DocumentPos bottom_right {
+        .page = page,
+        .x = x_offset + LINK_TARGET_SIZE,
+        .y = y_offset + LINK_TARGET_SIZE
+    };
+
+    DocumentRect link_rect = DocumentRect(top_left, bottom_right, page);
+
+    std::optional<AbsoluteRect> link_destination_rect = get_page_intersecting_rect(link_rect);
+    if (link_destination_rect) {
+        DocumentRect dest_rect = link_destination_rect.value().to_document(doc());
+
+        if (x_offset == 0){
+            // if the link has no x information, show a full-width highlight to handle the two-column documents better
+            dest_rect.rect.x0 = 0;
+            dest_rect.rect.x1 = doc()->get_page_width(page);
+        }
+
+        opengl_widget->set_synctex_highlights({ dest_rect });
+    }
+}
+
+void MainWidget::handle_goto_link_with_page_and_offset(int page, float y_offset, float x_offset) {
+
+    if (HIGHLIGHT_LINK_DESTINATION){
+        highlight_link_destination(page, y_offset, x_offset);
+    }
+
     long_jump_to_destination(page, y_offset);
     if (ALIGN_LINK_DEST_TO_TOP) {
         float top_offset = (main_document_view->get_view_height() / main_document_view->get_zoom_level()) / 2.0f;
@@ -11467,8 +11753,8 @@ QMenuBar* MainWidget::create_main_menu_bar(){
             new MenuNode{ "add_bookmark", "", {} },
             new MenuNode{ "add_marked_bookmark", "", {} },
             new MenuNode{ "add_freetext_bookmark", "", {} },
-            new MenuNode{ "delete_visible_bookmark", "", {} },
-            new MenuNode{ "edit_visible_bookmark", "Edit the selected bookmark", {} },
+            new MenuNode{ "delete_visible_annotation", "", {} },
+            new MenuNode{ "edit_visible_annotation", "Edit the selected annotation", {} },
         }
     };
 
@@ -11489,7 +11775,6 @@ QMenuBar* MainWidget::create_main_menu_bar(){
             new MenuNode{ "add_highlight", "", {} },
             new MenuNode{ "add_annot_to_selected_highlight", "", {} },
             new MenuNode{ "add_highlight_with_current_type", "", {} },
-            new MenuNode{ "edit_visible_highlight", "Edit the selected highlight", {} },
             new MenuNode{ "delete_highlight", "", {} },
         }
     };

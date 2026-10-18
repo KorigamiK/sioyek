@@ -65,6 +65,12 @@ rm -rf "$package_dir" "$build_dir/sioyek.app" "$build_dir/sioyek.dmg"
 
 app_path="$package_dir/sioyek.app"
 
+# Preserve PATH for commands launched from the Finder-installed app.
+info_plist="$app_path/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$info_plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :LSEnvironment:PATH string $PATH" "$info_plist" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:PATH $PATH" "$info_plist"
+
 qtquicktimeline_prefix=$(brew --prefix qtquicktimeline 2>/dev/null || true)
 if [[ -n $qtquicktimeline_prefix && -d $qtquicktimeline_prefix/lib ]]; then
   for framework in "$qtquicktimeline_prefix"/lib/*.framework; do

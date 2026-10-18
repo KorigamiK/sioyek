@@ -139,6 +139,10 @@ void get_flat_toc(const std::vector<TocNode*>& roots, std::vector<std::wstring>&
 TocNode* get_toc_node_from_indices_helper(const std::vector<TocNode*>& roots, const std::vector<int>& indices, int pointer) {
     assert(pointer >= 0);
 
+    if (pointer >= roots.size()){
+        return nullptr;
+    }
+
     if (pointer == 0) {
         return roots[indices[pointer]];
     }
@@ -152,25 +156,34 @@ TocNode* get_toc_node_from_indices(const std::vector<TocNode*>& roots, const std
 }
 
 
-QStandardItem* get_item_tree_from_toc_helper(const std::vector<TocNode*>& children, QStandardItem* parent) {
+QStandardItem* get_item_tree_from_toc_helper(const std::vector<TocNode*>& children, QStandardItem* parent, const std::vector<std::wstring>& page_labels) {
 
     for (const auto* child : children) {
         QStandardItem* child_item = new QStandardItem(QString::fromStdWString(child->title));
-        QStandardItem* page_item = new QStandardItem("[ " + QString::number(child->page) + " ]");
+
+        QString page_string;
+        if (child->page < page_labels.size() && page_labels[child->page].size() > 0) {
+            page_string = QString::fromStdWString(page_labels[child->page]);
+        }
+        else {
+            page_string = QString::number(child->page);
+        }
+
+        QStandardItem* page_item = new QStandardItem("[ " + page_string + " ]");
         child_item->setData(child->page);
         page_item->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
 
-        get_item_tree_from_toc_helper(child->children, child_item);
+        get_item_tree_from_toc_helper(child->children, child_item, page_labels);
         parent->appendRow(QList<QStandardItem*>() << child_item << page_item);
     }
     return parent;
 }
 
 
-QStandardItemModel* get_model_from_toc(const std::vector<TocNode*>& roots) {
+QStandardItemModel* get_model_from_toc(const std::vector<TocNode*>& roots, const std::vector<std::wstring>& page_labels) {
 
     QStandardItemModel* model = new QStandardItemModel();
-    get_item_tree_from_toc_helper(roots, model->invisibleRootItem());
+    get_item_tree_from_toc_helper(roots, model->invisibleRootItem(), page_labels);
     return model;
 }
 
@@ -505,7 +518,7 @@ std::vector<fz_stext_char*> reorder_stext_line(fz_stext_line* line) {
             });
     }
     else {
-        std::sort(reordered_chars.begin(), reordered_chars.end(), [](fz_stext_char* lhs, fz_stext_char* rhs) {
+        std::stable_sort(reordered_chars.begin(), reordered_chars.end(), [](fz_stext_char* lhs, fz_stext_char* rhs) {
             return (lhs->quad.lr.x <= rhs->quad.lr.x) && (lhs->quad.ll.x < rhs->quad.ll.x);
             });
     }
@@ -4457,6 +4470,9 @@ std::vector<std::wstring> get_last_opened_file_name() {
     std::ifstream last_state_file(last_opened_file_address_path.get_path_utf8());
     std::vector<std::wstring> res;
     while (std::getline(last_state_file, file_path_)) {
+        if (file_path_.rfind("[window]", 0) == 0) {
+            continue;
+        }
         res.push_back(utf8_decode(file_path_));
     }
     last_state_file.close();
@@ -4464,6 +4480,33 @@ std::vector<std::wstring> get_last_opened_file_name() {
     is_cached = true;
 
     return res;
+}
+
+std::vector<WindowState> get_last_saved_windows_states() {
+    std::vector<WindowState> states;
+    std::ifstream last_state_file(last_opened_file_address_path.get_path_utf8());
+    if (!last_state_file.is_open()) {
+        return states;
+    }
+    std::string line;
+    while (std::getline(last_state_file, line)) {
+        if (line.empty()) continue;
+        if (line.rfind("[window]", 0) == 0) {
+            WindowState state;
+            if (line.size() > 9) {
+                state.geometry_hex = line.substr(9);
+            }
+            states.push_back(state);
+        } else {
+            if (states.empty()) {
+                WindowState state;
+                states.push_back(state);
+            }
+            states.back().tabs.push_back(utf8_decode(line));
+        }
+    }
+    last_state_file.close();
+    return states;
 }
 
 bool stext_page_has_lines(fz_stext_page* page) {

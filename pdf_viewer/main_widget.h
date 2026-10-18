@@ -67,6 +67,16 @@ enum class SelectionMode {
     Line
 };
 
+enum class SioyekVisibleObjectType {
+    Highlight,
+    Bookmark
+};
+
+struct SioyekVisibleObjectIndex {
+    SioyekVisibleObjectType type;
+    int index;
+};
+
 struct MenuNode {
     QString name;
     QString doc;
@@ -136,6 +146,8 @@ enum class PaperDownloadFinishedAction {
 
 
 // if we inherit from QWidget there are problems on high refresh rate smartphone displays
+struct WindowState;
+
 #ifdef SIOYEK_ANDROID
 class MainWidget : public QQuickWidget {
 #else
@@ -143,6 +155,7 @@ class MainWidget : public QMainWindow {
 #endif
     Q_OBJECT
 public:
+    static MainWidget* create_restored_window(MainWidget* sibling, const WindowState& state);
     fz_context* mupdf_context = nullptr;
     DatabaseManager* db_manager = nullptr;
     DocumentManager* document_manager = nullptr;
@@ -341,6 +354,7 @@ public:
     QWidget* text_command_line_edit_container = nullptr;
     QLabel* text_command_line_edit_label = nullptr;
     QLineEdit* text_command_line_edit = nullptr;
+    QLabel* command_hints_label = nullptr;
     QLabel* status_label_left = nullptr;
     QLabel* status_label_right = nullptr;
     QWidget* status_label = nullptr;
@@ -431,6 +445,10 @@ public:
     void handle_right_click(WindowPos click_pos, bool down, bool is_shift_pressed, bool is_control_pressed, bool is_command_pressed, bool is_alt_pressed);
     void on_config_changed(std::string config_name, bool should_save=false);
     void on_configs_changed(std::vector<std::string>* config_names);
+    QString get_command_hints_stylesheet() const;
+    void hide_command_hints();
+    void update_command_hints_position();
+    void show_command_hints(std::unordered_map<std::string, std::vector<std::string>>& hints);
 
     void next_state();
     void prev_state();
@@ -446,10 +464,11 @@ public:
     void change_selected_bookmark_text(const std::wstring& new_text);
     void change_selected_highlight_text_annot(const std::wstring& new_text);
     char get_current_selected_highlight_type();
-    void show_textbar(const std::wstring& command_name, const std::wstring& initial_value = L"");
+    void show_textbar(const std::wstring& command_name, const std::wstring& initial_value = L"", bool is_password = false);
     void show_mark_selector();
     void toggle_two_window_mode();
     void toggle_window_configuration();
+    void show_portal_window();
     void handle_portal();
     void start_creating_rect_portal(AbsoluteDocumentPos location);
     void add_portal(std::wstring source_path, Portal new_link);
@@ -517,6 +536,7 @@ public:
         InputHandler* input_handler,
         CachedChecksummer* checksummer,
         bool* should_quit_ptr,
+        PdfRenderer* pdf_renderer,
         QWidget* parent = nullptr
     );
     MainWidget(MainWidget* other);
@@ -567,6 +587,7 @@ public:
     void set_current_widget(QWidget* new_widget);
     void push_current_widget(QWidget* new_widget);
     void pop_current_widget(bool canceled = false);
+    void pop_all_widgets();
     void show_current_widget();
     bool focus_on_visual_mark_pos(bool moving_down);
     void toggle_visual_scroll_mode();
@@ -658,6 +679,8 @@ public:
     void handle_delete_highlight_under_cursor();
     void handle_delete_selected_highlight();
     void handle_delete_selected_bookmark();
+    void handle_delete_selected_annotation();
+    void handle_edit_selected_annotation();
     void handle_start_reading();
     void handle_toggle_reading();
     void handle_stop_reading();
@@ -995,8 +1018,10 @@ public:
     void set_selected_bookmark_index(int index);
     void handle_highlight_tags_pre_perform(const std::vector<int>& visible_highlight_indices);
     void handle_visible_bookmark_tags_pre_perform(const std::vector<int>& visible_bookmark_indices);
+    void handle_visible_objects_tags_pre_perform(const std::vector<SioyekVisibleObjectIndex>& visible_object_indices);
     void clear_keyboard_select_highlights();
-    void handle_goto_link_with_page_and_offset(int page, float y_offset);
+    void highlight_link_destination(int page, float y_offset, float x_offset);
+    void handle_goto_link_with_page_and_offset(int page, float y_offset, float x_offset);
     std::optional<std::wstring> get_search_suggestion_with_index(int index);
     bool is_menu_focused();
     void ensure_player_state_(QString state);
@@ -1025,6 +1050,7 @@ public:
     void delete_menu_nodes(MenuNode* items);
     void set_pending_portal(std::optional<std::wstring> doc_path, Portal portal);
     void set_pending_portal(std::optional<std::pair<std::optional<std::wstring>, Portal>> pending_portal);
+    void update_text_selection_with_begin_and_end(AbsoluteDocumentPos begin, AbsoluteDocumentPos end);
     void update_text_selection(AbsoluteDocumentPos mouse_abspos);
     int update_recent_clicks(AbsoluteDocumentPos mouse_abspos);
     void handle_triple_click(AbsoluteDocumentPos mouse_abspos);
