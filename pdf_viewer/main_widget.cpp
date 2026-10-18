@@ -101,6 +101,7 @@ extern "C" {
 
 #ifdef Q_OS_MACOS
 extern "C" void changeTitlebarColor(WId, double, double, double, double);
+extern "C" void enableWindowDragGesture(WId);
 #endif
 
 static void set_titlebar_visible(QWidget* widget, bool visible, bool should_show) {
@@ -133,6 +134,9 @@ static void set_titlebar_visible(QWidget* widget, bool visible, bool should_show
         widget->show();
         widget->setWindowState(previous_state);
     }
+#ifdef Q_OS_MACOS
+    enableWindowDragGesture(widget->winId());
+#endif
 }
 
 extern int next_window_id;
