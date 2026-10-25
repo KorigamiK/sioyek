@@ -98,6 +98,7 @@ HEADERS += pdf_viewer/book.h \
            pdf_viewer/path.h \
            pdf_viewer/utf8.h \
            pdf_viewer/utils.h \
+           pdf_viewer/window_geometry.h \
            pdf_viewer/mysortfilterproxymodel.h \
            pdf_viewer/utf8/checked.h \
            pdf_viewer/utf8/core.h \

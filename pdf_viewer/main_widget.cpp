@@ -90,6 +90,7 @@
 #include "touchui/TouchSettings.h"
 
 #include "main_widget.h"
+#include "window_geometry.h"
 
 #ifdef SIOYEK_ANDROID
 #include <QtCore/private/qandroidextras_p.h>
@@ -140,6 +141,29 @@ static void set_titlebar_visible(QWidget* widget, bool visible, bool should_show
 }
 
 extern int next_window_id;
+
+static QList<QRect> available_window_areas() {
+    QList<QRect> areas;
+    QScreen* primary = QGuiApplication::primaryScreen();
+    if (primary) {
+        areas.append(primary->availableGeometry());
+    }
+    for (QScreen* screen : QGuiApplication::screens()) {
+        if (screen != primary) {
+            areas.append(screen->availableGeometry());
+        }
+    }
+    return areas;
+}
+
+static void validate_window_params(int* size, int* position) {
+    const QRect geometry = window_geometry_on_screen(
+        QRect(QPoint(position[0], position[1]), QSize(size[0], size[1])), available_window_areas());
+    size[0] = geometry.width();
+    size[1] = geometry.height();
+    position[0] = geometry.x();
+    position[1] = geometry.y();
+}
 
 extern bool SHOULD_USE_MULTIPLE_MONITORS;
 extern bool FAIL_SAFE_AUTO_SAVE_SESSION;
@@ -895,7 +919,13 @@ void MainWidget::persist(bool persist_drawings) {
         for (auto window : windows) {
             if (window->main_document_view->get_document()) {
                 window->main_document_view->persist(persist_drawings);
-                QByteArray geom = window->saveGeometry();
+                // Do not save the temporary off-screen position of a window
+                // parked by a workspace manager. Empty geometry uses the safe
+                // window configuration on the next launch.
+                QByteArray geom;
+                if (has_visible_window_area(window->geometry(), available_window_areas())) {
+                    geom = window->saveGeometry();
+                }
                 std::string geom_hex = geom.toHex().constData();
                 last_path_file << "[window] " << geom_hex << "\n";
                 std::string tabs_str = utf8_encode(window->get_current_tabs_file_names());
@@ -4414,6 +4444,7 @@ void MainWidget::get_window_params_for_one_window_mode(int* main_window_size, in
         main_window_move[0] = 0;
         main_window_move[1] = 0;
     }
+    validate_window_params(main_window_size, main_window_move);
 }
 void MainWidget::get_window_params_for_two_window_mode(int* main_window_size, int* main_window_move, int* helper_window_size, int* helper_window_move) {
     if (MAIN_WINDOW_SIZE[0] >= 0) {
@@ -4462,6 +4493,8 @@ void MainWidget::get_window_params_for_two_window_mode(int* main_window_size, in
             helper_window_move[1] = 0;
         }
     }
+    validate_window_params(main_window_size, main_window_move);
+    validate_window_params(helper_window_size, helper_window_move);
 }
 
 void MainWidget::apply_window_params_for_one_window_mode(bool force_resize) {
@@ -4861,20 +4894,32 @@ std::wstring MainWidget::get_window_configuration_string() {
     QString config_string_multi = "main_window_size    %1 %2\nmain_window_move     %3 %4\nhelper_window_size    %5 %6\nhelper_window_move     %7 %8";
     QString config_string_single = "single_main_window_size    %1 %2\nsingle_main_window_move     %3 %4";
 
-    QString main_window_size_w = QString::number(size().width());
-    QString main_window_size_h = QString::number(size().height());
+    const bool helper_visible = is_helper_visible();
+    const int* saved_size = helper_visible ? MAIN_WINDOW_SIZE : SINGLE_MAIN_WINDOW_SIZE;
+    const int* saved_position = helper_visible ? MAIN_WINDOW_MOVE : SINGLE_MAIN_WINDOW_MOVE;
+    const QList<QRect> areas = available_window_areas();
+    // Validate the value being saved without moving a live window off its
+    // window-manager workspace. Prefer the last usable saved position.
+    const QRect main_geometry = window_geometry_on_screen(geometry(), areas,
+        QRect(QPoint(saved_position[0], saved_position[1]), QSize(saved_size[0], saved_size[1])));
+    QString main_window_size_w = QString::number(main_geometry.width());
+    QString main_window_size_h = QString::number(main_geometry.height());
     QString helper_window_size_w = QString::number(-1);
     QString helper_window_size_h = QString::number(-1);
-    QString main_window_move_x = QString::number(pos().x());
-    QString main_window_move_y = QString::number(pos().y());
+    QString main_window_move_x = QString::number(main_geometry.x());
+    QString main_window_move_y = QString::number(main_geometry.y());
     QString helper_window_move_x = QString::number(-1);
     QString helper_window_move_y = QString::number(-1);
 
-    if (is_helper_visible()) {
-        helper_window_size_w = QString::number(helper_opengl_widget_->size().width());
-        helper_window_size_h = QString::number(helper_opengl_widget_->size().height());
-        helper_window_move_x = QString::number(helper_opengl_widget_->pos().x());
-        helper_window_move_y = QString::number(helper_opengl_widget_->pos().y());
+    if (helper_visible) {
+        const QRect helper_geometry = window_geometry_on_screen(
+            get_top_level_widget(helper_opengl_widget_)->geometry(), areas,
+            QRect(QPoint(HELPER_WINDOW_MOVE[0], HELPER_WINDOW_MOVE[1]),
+                  QSize(HELPER_WINDOW_SIZE[0], HELPER_WINDOW_SIZE[1])));
+        helper_window_size_w = QString::number(helper_geometry.width());
+        helper_window_size_h = QString::number(helper_geometry.height());
+        helper_window_move_x = QString::number(helper_geometry.x());
+        helper_window_move_y = QString::number(helper_geometry.y());
         return (config_string_multi.arg(main_window_size_w,
             main_window_size_h,
             main_window_move_x,
@@ -6480,13 +6525,21 @@ void MainWidget::handle_move_screen(int amount) {
     }
 }
 
+void MainWidget::restore_window_geometry(const QByteArray& saved_geometry) {
+    restoreGeometry(saved_geometry);
+    const QRect recovered = window_geometry_on_screen(geometry(), available_window_areas());
+    if (recovered != geometry()) {
+        setGeometry(recovered);
+    }
+}
+
 MainWidget* MainWidget::create_restored_window(MainWidget* sibling, const WindowState& state) {
     MainWidget* new_w = new MainWidget(sibling);
     new_w->execute_macro_if_enabled(STARTUP_COMMANDS);
     new_w->open_tabs(state.tabs);
     new_w->open_document(state.tabs[0]);
     if (!state.geometry_hex.empty()) {
-        new_w->restoreGeometry(QByteArray::fromHex(QByteArray::fromStdString(state.geometry_hex)));
+        new_w->restore_window_geometry(QByteArray::fromHex(QByteArray::fromStdString(state.geometry_hex)));
     } else {
         new_w->apply_window_params_for_one_window_mode();
     }

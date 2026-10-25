@@ -109,6 +109,7 @@ qt_add_executable(sioyek WIN32 MACOSX_BUNDLE
     pdf_viewer/utf8/core.h
     pdf_viewer/utf8/unchecked.h
     pdf_viewer/utils.cpp pdf_viewer/utils.h
+    pdf_viewer/window_geometry.h
 )
 
 if(APPLE)
@@ -306,3 +307,11 @@ qt_generate_deploy_app_script(
     ${SIOYEK_DEPLOY_TOOL_OPTIONS_ARG}
 )
 install(SCRIPT ${deploy_script})
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(window_geometry_test tests/window_geometry_test.cpp)
+  target_include_directories(window_geometry_test PRIVATE pdf_viewer)
+  target_link_libraries(window_geometry_test PRIVATE Qt6::Core)
+  add_test(NAME window_geometry COMMAND window_geometry_test)
+endif()

@@ -157,6 +157,7 @@ class MainWidget : public QMainWindow {
     Q_OBJECT
 public:
     static MainWidget* create_restored_window(MainWidget* sibling, const WindowState& state);
+    void restore_window_geometry(const QByteArray& saved_geometry);
     fz_context* mupdf_context = nullptr;
     DatabaseManager* db_manager = nullptr;
     DocumentManager* document_manager = nullptr;

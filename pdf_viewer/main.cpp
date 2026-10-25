@@ -468,7 +468,7 @@ MainWidget* handle_args(const QStringList& arguments, QLocalSocket* origin=nullp
                         windows[0]->open_tabs(saved_states[0].tabs);
                     }
                     if (!saved_states[0].geometry_hex.empty()) {
-                        windows[0]->restoreGeometry(QByteArray::fromHex(QByteArray::fromStdString(saved_states[0].geometry_hex)));
+                        windows[0]->restore_window_geometry(QByteArray::fromHex(QByteArray::fromStdString(saved_states[0].geometry_hex)));
                     }
                     for (size_t i = 1; i < saved_states.size(); ++i) {
                         if (saved_states[i].tabs.size() > 0) {
