@@ -4144,6 +4144,16 @@ public:
     bool requires_document() { return false; }
 };
 
+class CopyFilePathCommand : public Command {
+public:
+    static inline const std::string cname = "copy_file_path";
+    static inline const std::string hname = "Copy the current file's full path";
+    CopyFilePathCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        copy_to_clipboard(widget->doc()->get_path());
+    }
+};
+
 class CopyCommand : public Command {
 public:
     static inline const std::string cname = "copy";
@@ -7322,6 +7332,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<OpenDocumentEmbeddedCommand>();
     register_command<OpenDocumentEmbeddedFromCurrentPathCommand>();
     register_command<CopyCommand>();
+    register_command<CopyFilePathCommand>();
 #ifdef Q_OS_MACOS
     register_command<MacosLookupCommand>();
 #endif
