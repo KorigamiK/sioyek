@@ -32,6 +32,7 @@ extern float BACKGROUND_COLOR[3];
 extern float DARK_MODE_BACKGROUND_COLOR[3];
 extern float CUSTOM_COLOR_MODE_EMPTY_BACKGROUND_COLOR[3];
 extern float DARK_MODE_CONTRAST;
+extern std::wstring DARK_MODE_SHADER_PATH;
 extern float ZOOM_INC_FACTOR;
 extern float SCROLL_ZOOM_INC_FACTOR;
 extern float VERTICAL_MOVE_AMOUNT;
@@ -261,13 +262,6 @@ std::string read_file_contents(const Path& path) {
 }
 
 GLuint PdfViewOpenGLWidget::LoadShaders(Path vertex_file_path, Path fragment_file_path) {
-    //const wchar_t* vertex_file_path = vertex_file_path_.c_str();
-    //const wchar_t* fragment_file_path = fragment_file_path_.c_str();
-    // Create the shaders
-    GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
-    GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
-
-
 #ifdef SIOYEK_ANDROID
     std::string header = "#version 310 es\n";
 #else
@@ -287,6 +281,9 @@ GLuint PdfViewOpenGLWidget::LoadShaders(Path vertex_file_path, Path fragment_fil
 
     fragment_shader_code_utf8 = header + fragment_shader_code_utf8;
 
+    GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
+    GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+
     GLint Result = GL_FALSE;
     int InfoLogLength;
 
@@ -301,6 +298,11 @@ GLuint PdfViewOpenGLWidget::LoadShaders(Path vertex_file_path, Path fragment_fil
         glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
         printf("%s\n", &VertexShaderErrorMessage[0]);
     }
+    if (Result != GL_TRUE) {
+        glDeleteShader(VertexShaderID);
+        glDeleteShader(FragmentShaderID);
+        return 0;
+    }
 
     char const* FragmentSourcePointer = fragment_shader_code_utf8.c_str();
     glShaderSource(FragmentShaderID, 1, &FragmentSourcePointer, NULL);
@@ -313,6 +315,11 @@ GLuint PdfViewOpenGLWidget::LoadShaders(Path vertex_file_path, Path fragment_fil
         std::vector<char> FragmentShaderErrorMessage(InfoLogLength + 1);
         glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
         printf("%s\n", &FragmentShaderErrorMessage[0]);
+    }
+    if (Result != GL_TRUE) {
+        glDeleteShader(VertexShaderID);
+        glDeleteShader(FragmentShaderID);
+        return 0;
     }
 
     // Link the program
@@ -335,6 +342,11 @@ GLuint PdfViewOpenGLWidget::LoadShaders(Path vertex_file_path, Path fragment_fil
 
     glDeleteShader(VertexShaderID);
     glDeleteShader(FragmentShaderID);
+
+    if (Result != GL_TRUE) {
+        glDeleteProgram(ProgramID);
+        return 0;
+    }
 
     return ProgramID;
 }
@@ -385,6 +397,22 @@ void PdfViewOpenGLWidget::initializeGL() {
         shared_gl_objects.compiled_drawing_program = LoadShaders(shader_path.slash(L"compiled_drawing.vertex"), shader_path.slash(L"compiled_line.fragment"));
         shared_gl_objects.compiled_dots_program = LoadShaders(shader_path.slash(L"dot.vertex"), shader_path.slash(L"dot.fragment"));
 #endif
+
+        if (!DARK_MODE_SHADER_PATH.empty()) {
+#ifdef SIOYEK_ANDROID
+            Path vertex_path(L":/pdf_viewer/shaders/simple.vertex");
+#else
+            Path vertex_path = shader_path.slash(L"simple.vertex");
+#endif
+            GLuint custom_dark_program = LoadShaders(vertex_path, Path(DARK_MODE_SHADER_PATH));
+            if (custom_dark_program != 0) {
+                glDeleteProgram(shared_gl_objects.rendered_dark_program);
+                shared_gl_objects.rendered_dark_program = custom_dark_program;
+            }
+            else {
+                printf("Could not load dark_mode_shader_path; using the default dark shader.\n");
+            }
+        }
 
         shared_gl_objects.dark_mode_contrast_uniform_location = glGetUniformLocation(shared_gl_objects.rendered_dark_program, "contrast");
         //shared_gl_objects.gamma_uniform_location = glGetUniformLocation(shared_gl_objects.rendered_program, "gamma");

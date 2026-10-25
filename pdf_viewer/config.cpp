@@ -9,6 +9,7 @@ int FONT_SIZE = -1;
 int STATUS_BAR_FONT_SIZE = -1;
 float BACKGROUND_COLOR[3] = { 0.97f, 0.97f, 0.97f };
 float DARK_MODE_BACKGROUND_COLOR[3] = { 0.0f, 0.0f, 0.0f };
+std::wstring DARK_MODE_SHADER_PATH = L"";
 float CUSTOM_COLOR_MODE_EMPTY_BACKGROUND_COLOR[3] = { 0.0f, 0.0f, 0.0f };
 float RULER_COLOR[3] = { 0.5f, 0.5f, 0.5f };
 float RULER_MARKER_COLOR[3] = { 1.0f, 0.0f, 0.0f };
@@ -1062,6 +1063,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_string(L"inverse_search_command", &INVERSE_SEARCH_COMMAND);
     add_string(L"libgen_address", &LIBGEN_ADDRESS);
     add_string(L"shared_database_path", &SHARED_DATABASE_PATH);
+    add_string(L"dark_mode_shader_path", &DARK_MODE_SHADER_PATH);
     add_string(L"ruler_display_mode", &RULER_DISPLAY_MODE);
     add_string(L"ui_font", &UI_FONT_FACE_NAME);
     add_string(L"status_font", &STATUS_FONT_FACE_NAME);
